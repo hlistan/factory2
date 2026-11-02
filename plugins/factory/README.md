@@ -15,7 +15,9 @@ self-learning:
 6. **Evidence.** Screenshots per viewport and a video with a chapter per criterion, in a review pack for
    you. Comments are routed as spec gap, defect or cosmetic.
 7. **Merge and deploy**, after your confirmation, then a smoke test.
-8. **Monitor**, with incidents routed back to stage 5.
+8. **Monitor.** An anomaly files an issue first; the fix is a new bugfix run
+   (`/factory:run --issue <ref>`) through every stage and gate. Rollback is a separate mitigation you
+   approve.
 
 Every agent runs on Opus 5.5 with effort set per role; `roles` in `.factory/config.yaml` overrides a
 model or effort once `/factory:stats` shows the override holds up on your own runs.
@@ -36,6 +38,7 @@ Then run `/factory:init` in each project.
 |---|---|
 | `/factory:init` | Checks the environment, runs the compound-engineering contract test, writes `.factory/config.yaml` for your stack |
 | `/factory:run "<feature>"` | Starts a run; `/factory:run <slug>` resumes one |
+| `/factory:run --issue <ref>` | Starts a bugfix run from an issue (GitHub number or URL, or a local incident file) |
 | `/factory:status` | Where the active run stands |
 | `/factory:monitor <slug>` | One round of production checks; use with `/loop 15m` |
 | `/factory:stats` | Spend, first-pass rates, human-found issues and QA misses across runs |

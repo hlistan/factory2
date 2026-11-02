@@ -13,6 +13,11 @@
    standard), spawn `researcher` (medium) with the specific questions. Skip otherwise.
 4. Spawn `planner` (high) with: the request verbatim, the learnings, the research, the spec directory,
    and the instruction to write `prd.md`, `contract.json` and `plan.md` in the prd-format skill's format.
+   **Bugfix run** (`state.sh get .kind` is `bugfix`): the request is the issue (`state.sh get .issue`):
+   give the planner its body and every comment verbatim, including the triager's diagnosis, and, when
+   `caused_by` is set, that run's spec directory and PR. The planner writes a bugfix PRD (prd-format,
+   "Bugfix runs"). Then tell the issue the run started: `gh issue comment <n> --body "factory: fix run
+   <slug> started on branch factory/<slug>"`, or for a local issue add `run: <slug>` to its file.
 5. Check the files exist and `jq -e '.criteria | length > 0' contract.json`. Commit:
    `factory(<slug>): 1 plan`.
 

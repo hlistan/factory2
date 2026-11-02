@@ -57,6 +57,22 @@ monitor.checks entries.
 Anything the human must decide. Empty before approval.
 ```
 
+## Bugfix runs
+A run started from an issue (`kind: bugfix`) uses the same three files and the same review, with these
+differences:
+- **Problem** is the failure as observed: the signal or report, when it started, the evidence (check
+  output, logs, screenshots), who is affected, and the issue link. Add a `Fixes: <issue ref>` line under
+  the title.
+- **AC-1 is the regression criterion**: the reproduction, stated as the correct behaviour (WHEN <the
+  steps or condition that failed> THE SYSTEM SHALL <what should have happened>). Its test is written
+  first and must fail on the current code. Further criteria cover any related state the fix must not
+  break.
+- **Root cause** (a section after Problem): the diagnosis so far and how sure it is. It is advisory, like
+  plan.md; the regression test decides.
+- **Monitoring signals** keep the signal that caught the failure, so the fix is watched by the same check.
+- Sections that don't apply (Users and scope beyond the affected users, Rollout when there is no flag)
+  say "Unchanged." rather than being dropped.
+
 A PRD may quote a figure or a source only with the source's link, and the figure must appear in that
 source; state its evidence class (vendor, peer-reviewed, community, anecdote) and sample size.
 

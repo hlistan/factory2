@@ -1,7 +1,7 @@
 ---
 name: run
-description: Run one feature through factory's 8 stages (plan, PRD review, PRD fixes, test-first implementation, review, evidence for human approval, merge and deploy, monitor), or resume a run. Use when the user asks to build a feature with factory or runs /factory:run.
-argument-hint: "<feature request | slug> [--from <stage>]"
+description: Run one feature or bugfix through factory's 8 stages (plan, PRD review, PRD fixes, test-first implementation, review, evidence for human approval, merge and deploy, monitor), or resume a run. A bugfix run starts from a tracker issue (--issue), such as one filed by monitoring. Use when the user asks to build a feature or fix an issue with factory or runs /factory:run.
+argument-hint: "<feature request | slug | --issue <ref>> [--from <stage>]"
 disable-model-invocation: true
 model: opus
 effort: high
@@ -27,11 +27,20 @@ fail from exit codes. Arguments: `$ARGUMENTS`.
    with `learning.enabled` treated as false for capture and say so once.
 3. The first argument is a **slug** if `.factory/runs/<arg>/state.json` exists: `bash $S/state.sh resume
    <slug>`, read `bash $S/state.sh get .` and continue at the recorded stage (or `--from <n>`).
+   `--issue <ref>` (a GitHub issue number or URL, or `.factory/incidents/I-n.md`) starts a **bugfix
+   run**: read the issue with its comments (`gh issue view <n> --comments`, or the file), derive the slug
+   `fix-<n>-<few words>`, confirm it in one line, then `bash $S/state.sh start <slug> --issue <ref>`
+   (plus `--caused-by <slug>` when the issue names the run that shipped the regression). It is a normal
+   run through every stage and gate; stages-1-3.md and stages-7-8.md say what differs.
    Otherwise it is a **feature request**: derive a short kebab-case slug (≤ 40 chars), confirm it in one
    line, then `bash $S/state.sh start <slug>`. A refusal because another run is active means one run per
    checkout: tell the user to finish it, or start a parallel run with `claude --worktree`.
-4. Pick up incidents: any `.factory/incidents/I-*.md` with `status: open`, or open GitHub issues labelled
-   `factory-incident` when `monitor.report` is `github-issue`, go to the triager (stage 8 reference).
+4. Open incidents: list open issues labelled `factory-incident` (`gh issue list --label
+   factory-incident --state open`, or `.factory/incidents/I-*.md` with `status: open`) that no bugfix
+   run claims yet (no `.factory/runs/*/state.json` or `.factory/history/*.json` with that `issue`). Show
+   them in one line each and offer `/factory:run --issue <ref>` for each (in `claude --worktree` when a
+   run still holds this checkout, such as the one being monitored); never start one on your own.
+   An incident is fixed only through a bugfix run, never by reopening the run that shipped it.
 
 ## Spawning agents (every spawn)
 - Get the model and effort: `bash $S/state.sh role <agent> <default effort>` prints `<model> <effort>`,

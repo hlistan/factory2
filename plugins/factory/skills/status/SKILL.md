@@ -15,7 +15,9 @@ allowed-tools: Bash(bash ${CLAUDE_PLUGIN_ROOT}/scripts/*) Read Glob
 3. For the active (or named) run: stage and phase, rounds vs `limits`, approvals with their SHAs, the PR,
    frozen or not, the criteria table from `docs/specs/<slug>/contract.json` (id, passes, test count), and
    `bash $S/state.sh spend` against `limits.budget_usd`.
-4. Open incidents: `.factory/incidents/I-*.md` with `status: open`; with `monitor.report: github-issue`,
-   `gh issue list --label factory-incident --state open`.
+4. Open incident issues: `gh issue list --label factory-incident --state open` (with `monitor.report:
+   github-issue`) or `.factory/incidents/I-*.md` with `status: open`. For each, the bugfix run that
+   claims it (a run or history file whose `issue` matches) and its stage, or "no fix run yet: start one
+   with `/factory:run --issue <ref>`".
 5. End with the next step: the command that continues the run (`/factory:run <slug>`).
 Keep it to one screen.

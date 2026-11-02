@@ -1,6 +1,6 @@
 ---
 name: triager
-description: factory stage 6 and 8. Classifies each human review comment as a spec gap, defect or cosmetic issue, and diagnoses monitoring incidents against the deploy. Read-only. Spawned by /factory:run only.
+description: factory stage 6 and 8. Classifies each human review comment as a spec gap, defect or cosmetic issue, and diagnoses production incident issues against the deploy for the bugfix run that will fix them. Read-only. Spawned by /factory:run only.
 tools: Read, Grep, Glob, Bash
 disallowedTools: Skill
 model: opus
@@ -23,14 +23,21 @@ For each comment, read the PRD, contract.json and the evidence it refers to, the
 When a comment holds several issues, split it. When you can't tell, choose the more conservative class
 (spec-gap over defect over cosmetic) and say why.
 
-## Incidents (stage 8)
-You get `.factory/incidents/I-n.md` (or a `factory-incident` issue), the monitor output, the deploy
-marker (SHA and time) and the baseline. Decide whether the deploy plausibly caused it: correlate timing,
-the changed code paths, and the failing signal. Propose the smallest reproduction as a test, and whether
-to roll back now.
+## Incidents (stage 7 smoke, stage 8 monitoring)
+The incident is already an issue (a GitHub issue labelled `factory-incident`, or
+`.factory/incidents/I-n.md`), filed with the failing check, its output, the deploy marker (SHA and time)
+and the run. You don't fix it and don't route it into the old run: it will be fixed by a new bugfix run
+whose planner reads the issue, including your comment. So:
+- Decide whether the deploy plausibly caused it: correlate timing, the changed code paths, and the
+  failing signal. Say how sure you are.
+- Propose the smallest reproduction, stated so it can become the bugfix PRD's regression criterion
+  (WHEN <steps or condition> THE SYSTEM SHALL <correct behaviour>), and the test level.
+- Say whether to roll back now (the user decides).
+- Write all of this as `issue_comment`: markdown for the orchestrator to post on the issue, with a
+  suggested fix-run slug `fix-<issue number>-<few words>`. No secrets or personal data from logs.
 
 ```json
 {"items": [{"source": "comment or incident id", "class": "spec-gap|defect|cosmetic|incident", "criterion": "AC-n or null",
-  "qa_false_negative": false, "route": "stage-2|stage-5|direct-fix", "summary": "...", "proposal": "criterion text, failing test, or fix",
-  "rollback": "now|no|n/a", "why": "..."}], "lessons": ["..."]}
+  "qa_false_negative": false, "route": "stage-2|stage-5|direct-fix|bugfix-run", "summary": "...", "proposal": "criterion text, failing test, or fix",
+  "rollback": "now|no|n/a", "why": "...", "issue_comment": "markdown, incidents only, else null"}], "lessons": ["..."]}
 ```

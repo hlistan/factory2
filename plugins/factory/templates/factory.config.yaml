@@ -71,7 +71,10 @@ monitor:
   window_hours: 24
   scheduler: local-loop     # local-loop | launchd | github-actions
   interval: 15m
-  report: file              # file (.factory/incidents/) | github-issue (label factory-incident)
+  # Every anomaly files an issue first; the fix is a bugfix run: /factory:run --issue <ref>.
+  report: github-issue      # github-issue (label factory-incident) | command (issue_cmd) | file (.factory/incidents/)
+  issue_cmd: ""             # with report: command, files an issue in your tracker: title as $1, markdown
+                            # body on stdin; prints the issue reference (key or URL)
   auto_rollback: false
   checks:
     - name: health

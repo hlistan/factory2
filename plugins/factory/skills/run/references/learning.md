@@ -14,7 +14,8 @@ data. Lines are kept in the committed history file and folded into
 
 ## ce-compound (project knowledge)
 At four points: a PRD round where something got past the reviewer; a blocking finding confirmed and
-fixed or escalated; a stage 6 issue resolved; an incident postmortem. One learning per call, and only
+fixed or escalated; a stage 6 issue resolved; an incident postmortem (at the bugfix run's stage 7,
+once the cause and fix are known). One learning per call, and only
 for lessons that generalise beyond this feature:
 
 Skill tool → `compound-engineering:ce-compound` with arguments

@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 # factory run state. The orchestrator (/factory:run) calls these; hooks read the same files.
-#   state.sh start <slug> [--effort-env-ok]   begin a run in this checkout: state.json, lock, port, history
+#   state.sh start <slug> [--effort-env-ok] [--issue <ref>] [--caused-by <slug>]
+#                                    begin a run in this checkout: state.json, lock, port, history. --issue
+#                                    makes it a bugfix run for that tracker issue (GitHub number, URL, or a
+#                                    local .factory/incidents/I-n.md); --caused-by names the run that shipped
+#                                    the regression, when known.
 #   state.sh resume <slug> [--effort-env-ok]  make an existing run the active one
 #                                    Both exit 3 while CLAUDE_CODE_EFFORT_LEVEL is set: it overrides every
 #                                    agent's effort, even the Agent tool's parameter. --effort-env-ok (after
@@ -112,8 +116,18 @@ SPEND_TOTAL="($SPEND_BY_STAGE) | [.[]] | add // 0"
 
 case "$cmd" in
   start)
-    effort_env_gate "${2:-}"
-    slug="${1:-}"; slug_ok "$slug" || { echo "factory: slug must be lowercase letters, digits, . _ - (max 64)" >&2; exit 2; }
+    slug="${1:-}"; [ $# -gt 0 ] && shift
+    eok=""; issue=""; caused=""
+    while [ $# -gt 0 ]; do
+      case "$1" in
+        --effort-env-ok) eok="$1"; shift ;;
+        --issue) [ -n "${2:-}" ] || { echo "factory: --issue needs a reference" >&2; exit 2; }; issue="$2"; shift 2 ;;
+        --caused-by) slug_ok "${2:-}" || { echo "factory: --caused-by needs a run slug" >&2; exit 2; }; caused="$2"; shift 2 ;;
+        *) echo "factory: unknown start option '$1'" >&2; exit 2 ;;
+      esac
+    done
+    effort_env_gate "$eok"
+    slug_ok "$slug" || { echo "factory: slug must be lowercase letters, digits, . _ - (max 64)" >&2; exit 2; }
     cur="$(factory_active_slug)"
     if [ -n "$cur" ] && [ "$cur" != "$slug" ]; then echo "factory: run '$cur' is active in this checkout; finish it, or use claude --worktree for a parallel run" >&2; exit 1; fi
     run="$runs/$slug"
@@ -124,8 +138,10 @@ case "$cmd" in
       port="$(derive_port "$slug")"
       base="$(git -C "$root" rev-parse HEAD 2>/dev/null || echo "")"
       jq -n --arg slug "$slug" --arg at "$(now_utc)" --arg base "$base" --argjson port "${port:-0}" \
-        --arg ce "$(ce_version || true)" '{
+        --arg ce "$(ce_version || true)" --arg issue "$issue" --arg caused "$caused" '{
           slug: $slug, created: $at, stage: 1, phase: "plan", base: $base, branch: ("factory/" + $slug),
+          kind: (if $issue == "" then "feature" else "bugfix" end),
+          issue: (if $issue == "" then null else $issue end), caused_by: (if $caused == "" then null else $caused end),
           port: $port, rounds: {prd: 0, impl: 0, review: 0, evidence: 0}, approvals: {}, pr: null,
           frozen: false, spawns: [], compound: [], escalations: [], ce_version: $ce,
           spend: {main: {}, agents: {}, main_seen: {}}
@@ -133,8 +149,10 @@ case "$cmd" in
     fi
     hf="$(history_file "$slug")"
     if [ ! -f "$hf" ]; then
-      jq -n --arg slug "$slug" --arg at "$(now_utc)" --arg ce "$(ce_version || true)" '{
+      jq -n --arg slug "$slug" --arg at "$(now_utc)" --arg ce "$(ce_version || true)" --arg issue "$issue" --arg caused "$caused" '{
         slug: $slug, started: $at, finished: null, ce_version: $ce, depth: null,
+        kind: (if $issue == "" then "feature" else "bugfix" end),
+        issue: (if $issue == "" then null else $issue end), caused_by: (if $caused == "" then null else $caused end),
         issues: [], qa_false_negatives: [], implementer_passes: [], rounds: {}, escalations: [],
         incidents: [], spend: {}, models: [], compound: [], calibration: []
       }' > "$hf"

@@ -13,6 +13,8 @@ allowed-tools: Bash(bash ${CLAUDE_PLUGIN_ROOT}/scripts/*) Read Glob
    - spend by stage and by agent (report this before anyone tunes `limits.depth`)
    - implementer first-pass rate and re-run count by model and effort, and QA false negatives per effort
    - fix rounds per stage, escalations, incidents
+   - escapes: bugfix runs (`kind: bugfix`) per originating run (`caused_by`) and the stage that should
+     have caught each (`escape.stage_missed`)
    - issues found by humans, by stage, `problem_type` and `component` (from `docs/solutions/` frontmatter)
    - ce-compound outcomes and compound-engineering versions
    - lite vs full depth: defects that reached stage 6 or production under each (ablation)

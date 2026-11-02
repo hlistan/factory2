@@ -27,8 +27,14 @@ flowchart TD
     S6 -- cosmetic --> S6
     S6 -- approve --> S7{7 Merge and deploy<br/>YOU confirm deploy}
     S7 --> S8[8 Monitor]
-    S8 -- incident --> S5
+    S7 -- smoke fails --> I
+    S8 -- anomaly --> I[Issue filed first<br/>factory-incident]
+    I --> B([New bugfix run:<br/>/factory:run --issue ref])
+    B -.-> S1
 ```
+
+A production problem never reopens the run that shipped it. It becomes an **issue**, and the fix is a
+new **bugfix run** through the same stages and gates.
 
 Three rules hold the whole thing together:
 
@@ -58,7 +64,7 @@ Three rules hold the whole thing together:
 | `reviewer-maintainability` | Advisory lens | Opus, medium | No |
 | `challenger` | Tries to refute each blocking finding | Opus, high | No |
 | `qa-evaluator` | Drives the running app, one pass or fail per criterion | Opus, high | No |
-| `triager` | Classifies your comments and production incidents | Opus, high | No |
+| `triager` | Classifies your comments; diagnoses incident issues and posts the diagnosis on the issue | Opus, high | No |
 
 You can override a model or effort per agent in `roles:` (see §5.5). Do it only after `/factory:stats`
 shows the override holds up on your own runs.
@@ -107,6 +113,7 @@ Start a run:
 
 ```
 /factory:run "Add a dark-mode toggle to the settings page"
+/factory:run --issue 123          # a bugfix run from a GitHub issue (number or URL), or a local incident file
 ```
 
 The orchestrator proposes a short slug (for example `dark-mode-toggle`) and asks you to confirm it. From
@@ -122,6 +129,12 @@ One run per checkout. For a second feature in parallel, start another session wi
 each run gets its own branch and dev-server port.
 
 ### Stage 1: analyze and plan (automatic)
+
+> **Bugfix runs** (`--issue`) follow exactly the same stages. The differences: the planner reads the
+> issue and every comment on it (including the triager's diagnosis), and writes a bugfix PRD. Its
+> Problem section is the failure as observed, with the evidence; a Root cause section gives the
+> diagnosis; and **AC-1 is the regression criterion** that reproduces the failure, so its test is
+> written first and must fail on today's code. The PR says `Fixes #<n>`, so merging closes the issue.
 
 1. Updates the default branch, then creates `factory/<slug>` and records its base commit.
 2. `learnings-researcher` pulls relevant past lessons from `docs/solutions/`.
@@ -232,7 +245,10 @@ Advisory findings are not fixed automatically; you see them at the stage 6 gate.
    main or the memory fold. Anything else sends the run back to stage 6.
 4. Merges the PR, then **asks you to confirm the deploy**, showing the deploy and rollback commands.
    Deploy and rollback commands are blocked by a hook unless that approval is recorded.
-5. Runs the smoke tests. If they fail, it asks you to roll back, then sends the run to stage 5.
+5. Runs the smoke tests. If they fail, it **files an issue first**, then asks whether to roll back, and
+   offers a bugfix run for the issue. The change is already merged, so the run itself doesn't go back.
+6. **For a bugfix run:** comments the deploy on the issue (the merge closed it), writes the postmortem
+   (§6.2), and records lesson lines for the agents of the run that shipped the bug.
 
 ### Stage 8: monitor *(M6)*
 
@@ -243,6 +259,7 @@ See §4.2.
 | You want to | Do |
 |---|---|
 | Continue a paused run | `/factory:run <slug>` (a new session also tells you which run is active) |
+| Fix an issue (an incident or any bug report) | `/factory:run --issue <ref>`. Use `claude --worktree` while another run holds the checkout (for example one still being monitored). |
 | Restart from a stage | `/factory:run <slug> --from <n>`. Going back cancels approvals given at that stage or later. |
 | Abandon a run | Stop at any gate, run `bash <plugin>/scripts/state.sh end` to release the checkout, then delete `.factory/runs/<slug>/` and the branch if you don't need them. The committed spec and history stay. |
 
@@ -269,8 +286,15 @@ TaskStop are listed as unpriced.
 ### 4.2 Watching production after a deploy *(M6)*
 
 `monitor.sh` runs your `monitor.checks` commands and compares them with the baseline recorded at deploy.
-On an anomaly it files an incident, either `.factory/incidents/I-<n>.md` or a GitHub issue labelled
-`factory-incident` (`monitor.report`). It rolls back on its own only when `auto_rollback: true`.
+On an anomaly it **files an issue first**, before anything else (`monitor.report`):
+
+| `monitor.report` | Where the issue goes |
+|---|---|
+| `github-issue` (default) | A GitHub issue labelled `factory-incident`, with the failing check, its output, the deploy commit, the run and the PR |
+| `command` | Your tracker (Jira, Linear, …) through `monitor.issue_cmd`, which gets the title as `$1` and the body on stdin, and prints the issue key |
+| `file` | `.factory/incidents/I-<n>.md`, for projects without a tracker |
+
+It rolls back on its own only when `auto_rollback: true`.
 
 Choose a scheduler with `monitor.scheduler`:
 
@@ -282,14 +306,25 @@ Choose a scheduler with `monitor.scheduler`:
 
 **When an incident appears:**
 
-1. The next `/factory:run` or `/factory:status` (and the session-start message) points it out.
-2. `triager` correlates it with the deploy commit and the diff, and recommends a rollback or a fix.
-3. A rollback needs your explicit yes.
-4. The run goes back to stage 5, starting with a test that reproduces the incident, and a postmortem is
-   captured as a lesson.
+1. **The issue already exists.** `monitor.sh` filed it the moment the check failed, even when no Claude
+   session was running (launchd, GitHub Actions).
+2. **Triage.** `/factory:monitor`, or the next `/factory:run` or `/factory:status`, picks it up.
+   `triager` correlates it with the deploy commit and the diff, and **posts its diagnosis on the issue**:
+   how likely the deploy caused it, a proposed reproduction written as a regression criterion, and
+   whether to roll back.
+3. **Mitigate (optional).** A rollback needs your explicit yes and is commented on the issue.
+4. **Fix through the normal flow.** You start `/factory:run --issue <ref>` (in `claude --worktree` while
+   the original run is still being monitored). It's a full run: bugfix PRD and your PRD approval, a
+   failing regression test first, review, evidence and your approval, then deploy. Merging closes the
+   issue.
+5. **Learn.** At the bugfix run's stage 7, once the cause is known, the postmortem is written and the
+   agents of the original run that should have caught it get lesson lines.
 
-The run stays at stage 8 until `monitor.window_hours` (24 by default) pass without an incident; then it
-ends.
+The original run is never reopened. It stays at stage 8 until `monitor.window_hours` (24 by default)
+pass, then ends; incidents don't extend the window.
+
+`/factory:status` lists open incident issues and the bugfix run handling each one, or says that none has
+started yet.
 
 ---
 
@@ -397,7 +432,10 @@ flowchart LR
   lens. A challenger's refutation with execution evidence → a line for the lens that raised it.
 - **Stage 6:** a defect on a criterion QA passed is a **QA false negative** → a line for `qa-evaluator`,
   plus a candidate eval case.
-- **Stage 8:** an incident → a postmortem through ce-compound.
+- **Production incident:** at the bugfix run's stage 7, once the cause is known → a postmortem through
+  ce-compound, and lines for the agents of the original run that should have caught it (usually a
+  review lens, `qa-evaluator` or `test-reviewer`). The escape is recorded, so `stats` shows which stage
+  lets problems through.
 
 **What a good line looks like:** specific and testable, written as a check. For example: "check every
 list view has an empty-state criterion". Never a rule that overrides the task, and never secrets or user
@@ -438,6 +476,7 @@ Each run's committed history file records:
 - QA false negatives
 - implementer first-pass rate by model and effort
 - fix rounds, escalations and incidents
+- for bugfix runs: the issue, the run that caused it, and the stage that should have caught it
 - spend by stage and by agent
 - review depth
 - ce-compound outcomes and the compound-engineering version
@@ -470,6 +509,7 @@ agent prompt changes. The seed case, a PRD with no empty-state criterion, scored
 |---|---|
 | `/factory:init` | Once per project, and again after upgrading factory or compound-engineering |
 | `/factory:run "<feature>"` | Start a run |
+| `/factory:run --issue <ref>` | Start a bugfix run from an issue |
 | `/factory:run <slug> [--from <n>]` | Resume, or restart from a stage |
 | `/factory:status [slug]` | One-screen state of a run; read-only |
 | `/factory:monitor <slug>` | One round of production checks *(M6)*; pair with `/loop` |
@@ -485,7 +525,7 @@ agent prompt changes. The seed case, a PRD with no empty-state criterion, scored
   runs/<slug>/               ignored     state.json, frozen.tsv, checks.snapshot.json, plan.frozen.md,
                                          baseline-failures, reports/, evidence/, review-pack/,
                                          stop-gate.log, gate-errors.log
-  incidents/I-<n>.md         ignored     production incidents (M6)
+  incidents/I-<n>.md         ignored     incident issues when monitor.report is file (M6)
 docs/specs/<slug>/           committed   prd.md, contract.json, plan.md, feedback/
 docs/solutions/              committed   project knowledge (compound-engineering)
 .claude/agent-memory/factory-<agent>/

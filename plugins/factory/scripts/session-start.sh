@@ -23,7 +23,7 @@ if [ -n "$slug" ] && [ -f "$runs/$slug/state.json" ]; then
   jq -r --arg s "$slug" '"factory: run \($s) is active at stage \(.stage) (\(.phase)). Continue it with /factory:run \($s)."' "$runs/$slug/state.json"
 fi
 n="$(grep -l -E '^status: *open' "$root"/.factory/incidents/I-*.md 2>/dev/null | wc -l | tr -d ' ')"
-[ "${n:-0}" -gt 0 ] && echo "factory: $n open incident(s) in .factory/incidents/. /factory:status lists them; the triager handles them in /factory:run."
+[ "${n:-0}" -gt 0 ] && echo "factory: $n open incident issue(s) in .factory/incidents/. /factory:status lists them; fix each with a bugfix run: /factory:run --issue <file>."
 
 data="${CLAUDE_PLUGIN_DATA:-}"
 v="$(bash "$FACTORY_SCRIPTS/state.sh" ce-version 2>/dev/null)"

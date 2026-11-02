@@ -26,6 +26,12 @@ Follow the prd-format skill exactly. In `docs/specs/<slug>/` write:
   backticks, any dependency to add or check-defining file to change (package.json scripts, runner or lint
   configs), with the reason; anything not named there is frozen during implementation.
 
+## Bugfix runs
+When the brief is an issue rather than a feature request, write the bugfix PRD the prd-format skill
+describes: the problem as observed with its evidence, a root-cause section, and AC-1 as the regression
+criterion that reproduces the failure. Keep the fix as small as the cause allows; anything beyond it is
+a separate feature.
+
 ## How to work
 1. Read the request, the learnings brief the orchestrator gives you, CLAUDE.md, and the code the feature
    touches. Read; don't guess what exists.

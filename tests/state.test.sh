@@ -122,4 +122,19 @@ t_code 3 "resume refuses too"
 FACTORY_ROOT="$R3" run bash "$S/state.sh" resume eff
 t_code 0 "resume without the variable"
 t_eq "$(jq -r .effort_env "$R3/.factory/runs/eff/state.json")" "null" "clears the recorded level"
+# bugfix runs: start --issue records the issue and the run that caused it, in state and history
+R4="$(new_repo)"
+FACTORY_ROOT="$R4" run bash "$S/state.sh" start fix-12-login --issue 12 --caused-by dark-mode
+t_code 0 "start --issue"
+t_eq "$(jq -r '.kind + " " + .issue + " " + .caused_by' "$R4/.factory/runs/fix-12-login/state.json")" "bugfix 12 dark-mode" "state records a bugfix run"
+t_eq "$(jq -r '.kind + " " + .issue + " " + .caused_by' "$R4/.factory/history/fix-12-login.json")" "bugfix 12 dark-mode" "history records it too"
+FACTORY_ROOT="$R4" bash "$S/state.sh" end >/dev/null
+FACTORY_ROOT="$R4" run bash "$S/state.sh" start plain
+t_eq "$(jq -r '.kind, .issue' "$R4/.factory/runs/plain/state.json" | tr '\n' ' ')" "feature null " "a plain start is a feature run"
+FACTORY_ROOT="$R4" bash "$S/state.sh" end >/dev/null
+FACTORY_ROOT="$R4" run bash "$S/state.sh" start x --issue;            t_code 2 "--issue needs a reference"
+FACTORY_ROOT="$R4" run bash "$S/state.sh" start x --caused-by "Bad"; t_code 2 "--caused-by needs a slug"
+FACTORY_ROOT="$R4" run bash "$S/state.sh" start x --bogus;            t_code 2 "unknown start options are refused"
+CLAUDE_CODE_EFFORT_LEVEL=high FACTORY_ROOT="$R4" run bash "$S/state.sh" start y --issue 3 --effort-env-ok
+t_code 0 "--effort-env-ok works in any position"
 t_done

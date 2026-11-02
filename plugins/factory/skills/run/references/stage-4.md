@@ -57,4 +57,5 @@ Re-run the fast checks.
 ## 4d Draft PR
 Commit, `git push -u origin factory/<slug>`, run `ship.pr_open` from the config (`bash $S/state.sh config
 .ship.pr_open`), and record the PR number: `bash $S/state.sh set '.pr = $n' --argjson n <number>`. A project
-with no remote or an empty `pr_open` skips this; say so once.
+with no remote or an empty `pr_open` skips this; say so once. **Bugfix run:** add `Fixes #<n>` (or the
+issue URL) to the PR description, so merging closes the issue, and comment the PR link on the issue.
