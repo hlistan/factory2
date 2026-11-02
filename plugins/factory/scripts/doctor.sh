@@ -34,10 +34,10 @@ for f in "${settings_files[@]}"; do
   for k in disableAllHooks allowManagedHooksOnly; do
     [ "$(jq -r --arg k "$k" '.[$k] // false' "$f" 2>/dev/null)" = "true" ] && bad "$k is set in $f: factory's hooks would not run"
   done
-  [ "$(jq -r '.autoMemoryEnabled // true' "$f" 2>/dev/null)" = "false" ] && bad "auto memory is off in $f (autoMemoryEnabled: false)"
+  [ "$(jq -r 'if has("autoMemoryEnabled") then .autoMemoryEnabled else true end | tostring' "$f" 2>/dev/null)" = "false" ] && bad "auto memory is off in $f (autoMemoryEnabled: false): subagent memory (factory's per-agent calibration) has no effect; set it to true"
 done
 [ -n "${CLAUDE_CODE_DISABLE_AUTO_MEMORY:-}" ] && [ "${CLAUDE_CODE_DISABLE_AUTO_MEMORY}" != "0" ] && bad "CLAUDE_CODE_DISABLE_AUTO_MEMORY is set: auto memory is off"
-[ -n "${CLAUDE_CODE_EFFORT_LEVEL:-}" ] && warn "CLAUDE_CODE_EFFORT_LEVEL=$CLAUDE_CODE_EFFORT_LEVEL overrides every agent's effort; unset it for factory runs"
+[ -n "${CLAUDE_CODE_EFFORT_LEVEL:-}" ] && warn "CLAUDE_CODE_EFFORT_LEVEL=$CLAUDE_CODE_EFFORT_LEVEL overrides every agent's effort, even the Agent tool's effort parameter; unset it for factory runs"
 
 ip="$cfgdir/plugins/installed_plugins.json"
 if [ -f "$ip" ]; then

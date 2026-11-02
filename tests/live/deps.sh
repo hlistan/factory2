@@ -29,6 +29,11 @@ t_eq "$(st factory@factory-git)" "true" "factory enabled"
 t_eq "$(st compound-engineering@compound-engineering-plugin)" "true" "compound-engineering installed and enabled as a dependency"
 ip="$(list_json | jq -r '.[] | select(.id == "factory@factory-git") | .installPath')"
 [ -f "$ip/hooks/hooks.json" ] && [ -f "$ip/scripts/state.sh" ] && t_ok || t_fail "git install has hooks and scripts ($ip)"
+# the hook-firing tests (tests/live/hooks.sh) run the directory copy through --plugin-dir; a session can't
+# run in this isolated config (not logged in), so the git install is shown to be the same files instead
+mkdir -p "$T_TMP/head" && git -C "$REPO" archive HEAD plugins/factory | tar -x -C "$T_TMP/head"
+d="$(diff -r -q "$ip" "$T_TMP/head/plugins/factory" 2>&1 | grep -v -e '\.git' -e ': \.in_use$')"
+t_eq "$d" "" "the git-installed plugin is byte-identical to the committed directory copy"
 list_json | jq -r '.[] | "    \(.id) \(.version) enabled=\(.enabled)"'
 
 # the directory source (this checkout), as used in development

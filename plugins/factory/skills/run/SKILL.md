@@ -17,7 +17,10 @@ fail from exit codes. Arguments: `$ARGUMENTS`.
 `S=${CLAUDE_PLUGIN_ROOT}/scripts` below. Run every script as `bash $S/<script> …` from the repository root.
 
 ## Start or resume
-1. No `.factory/config.yaml` → stop and tell the user to run `/factory:init`.
+1. No `.factory/config.yaml` → stop and tell the user to run `/factory:init`. If
+   `CLAUDE_CODE_EFFORT_LEVEL` is set (the session-start context says so), stop: it overrides the effort
+   of every agent spawn, including the Agent tool's `effort` parameter, so factory's per-role effort
+   would be ignored. Ask the user to unset it, or to confirm running every agent at that level.
 2. If the session-start context said the compound-engineering contract test hasn't passed for the
    installed version, run `bash ${CLAUDE_PLUGIN_ROOT}/scripts/ce-contract.sh` first. If it fails, continue
    with `learning.enabled` treated as false for capture and say so once.

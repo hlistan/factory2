@@ -102,9 +102,11 @@ state_update() { # <jq expression> [--arg/--argjson pairs...]: atomically rewrit
 
 now_utc() { date -u +%Y-%m-%dT%H:%M:%SZ; }
 
-factory_hook_log() { # <hook> <input>: appends the raw hook input to $FACTORY_HOOK_LOG (for the M1 smoke tests)
+factory_hook_log() { # <hook> <input>: with $FACTORY_HOOK_LOG set (a directory), saves the raw hook input
+  # as one file per call, <epoch>-<pid>-<hook>.json, for the live tests. One file per call because
+  # hooks run in parallel and long appends to a shared file interleave.
   [ -n "${FACTORY_HOOK_LOG:-}" ] || return 0
-  printf '%s\t%s\n' "$1" "$(printf '%s' "$2" | tr -d '\n')" >> "$FACTORY_HOOK_LOG" 2>/dev/null
+  mkdir -p "$FACTORY_HOOK_LOG" 2>/dev/null && printf '%s\n' "$2" > "$FACTORY_HOOK_LOG/$(date +%s)-$$-$1.json" 2>/dev/null
   return 0
 }
 

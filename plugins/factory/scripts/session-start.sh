@@ -5,7 +5,7 @@
 #   - names the active run, if any, and open incidents;
 #   - warns when the installed compound-engineering version hasn't passed factory's contract test
 #     (recorded in $CLAUDE_PLUGIN_DATA/ce-contract.json by /factory:init or /factory:run);
-#   - warns when CLAUDE_CODE_EFFORT_LEVEL is set, because it overrides every agent's frontmatter effort.
+#   - warns when CLAUDE_CODE_EFFORT_LEVEL is set, because it overrides every agent's effort, the Agent tool's effort parameter included (observed on 2.1.316).
 set -u
 input="$(cat)"
 . "$(cd "$(dirname "$0")" && pwd)/lib/common.sh"
@@ -33,5 +33,5 @@ elif [ -n "$data" ]; then
   passed="$(jq -r '.passed_version // empty' "$data/ce-contract.json" 2>/dev/null)"
   [ "$passed" = "$v" ] || echo "factory: compound-engineering $v hasn't passed factory's contract test${passed:+ (last passed: $passed)}; /factory:run runs it before stage 1."
 fi
-[ -n "${CLAUDE_CODE_EFFORT_LEVEL:-}" ] && echo "factory: CLAUDE_CODE_EFFORT_LEVEL=$CLAUDE_CODE_EFFORT_LEVEL is set; it overrides the effort in every factory agent's definition."
+[ -n "${CLAUDE_CODE_EFFORT_LEVEL:-}" ] && echo "factory: CLAUDE_CODE_EFFORT_LEVEL=$CLAUDE_CODE_EFFORT_LEVEL is set; it overrides every factory agent's effort, including the Agent tool's effort parameter."
 exit 0
