@@ -465,3 +465,41 @@ learning: {enabled: true, compound_depth: full, refresh_ceiling: 25, memory_max_
   - memory poisoning: https://arxiv.org/abs/2512.16962 and https://arxiv.org/abs/2607.06595
   - METR: https://metr.org/blog/2025-06-05-recent-reward-hacking
   - https://arxiv.org/abs/2511.18397
+
+## M1 findings (2026-11-02, Claude Code 2.1.316, compound-engineering 3.34.0)
+
+Verified by `tests/live/deps.sh`, `tests/live/hooks.sh`, `plugins/factory/scripts/ce-contract.sh` and
+`tests/eval.sh`; lessons in `docs/solutions/`. Deltas to the plan above:
+
+- **Dependency resolution works from a git source** (git-subdir over `file://`): installing factory pulls
+  compound-engineering 3.34.0, both enabled. An unsatisfiable range fails the install, but the entry
+  stays with `enabled: true`; `.errors` carries "Requires …". doctor checks `.errors`.
+- **Without its dependency, factory loads no agents.** Live tests load both plugin dirs. `claude plugin
+  eval` loads the plugin alone, so evals run a copy without `dependencies` (`tests/eval.sh`). Eval
+  directory is `plugins/factory/evals/`.
+- **Hooks fire** (directory source via `--plugin-dir`; the git install is byte-identical to the committed
+  tree): SessionStart; PreToolUse Bash (deploy guard blocked `ship.deploy` at stage 1); PreToolUse Write
+  (read-only role and memory path blocked); SubagentStop `^factory:implementer$` blocked once at
+  `stop_retries: 1` and then let the agent stop; SubagentStop `^factory:` priced every spawn. The 900 s
+  timeout itself was not exercised.
+- **PreToolUse input for subagent tool calls carries `agent_type: "factory:<agent>"`**, so test-guard's
+  read-only rule is active (not only the hash check).
+- **Memory directory is `.claude/agent-memory/factory-<agent>/`**, and MEMORY.md is injected; memory
+  agents do get Write and Edit. Subagent memory needs auto memory on: **this machine's
+  `~/.claude/settings.json` has `autoMemoryEnabled: false`**, which disables layer 2 entirely; doctor
+  now fails on it (it didn't before, see the jq lesson).
+- **Agent tool `model` and `effort` parameters take effect**, and the effort parameter wins over
+  frontmatter. **`CLAUDE_CODE_EFFORT_LEVEL` overrides the parameter too**, so `/factory:run` refuses to
+  start while it is set (was: a warning).
+- **`disallowedTools: Skill`**: the subagent has no Skill tool and ce-compound wasn't invoked.
+- **ce-compound contract holds on 3.34.0** (final line, refresh line, doc with a closed-list
+  `problem_type`), but its durability bar skips lessons the final code already shows. Capture context
+  must carry the failed attempts and investigation; `Documentation skipped` is a normal outcome. The
+  contract test lives in the plugin (`scripts/ce-contract.sh`) so `/factory:init` can run it; ~$1.
+- **Spend** prices fast mode and US-only inference from transcript fields (the "ignores" note under
+  Prices is outdated). AC tags also accept `AC_n` function names (Go, Swift). `checks.hook_timeout` is
+  dropped (900 s is fixed in hooks.json). `evidence.driver: playwright|command|none` covers non-web apps
+  (a Swift app project). Scripts need only bash, git, jq and python3 (a YAML-subset parser replaces yq).
+- **#92750 is still open** (subagents receive the auto-memory index and skill listing). Not worked
+  around in M1: factory's agents can't invoke skills, and the extra context is read-only.
+- First eval case (`prd-reviewer-empty-state`, one run per arm): with 1.00, without 0.25. Directional.
