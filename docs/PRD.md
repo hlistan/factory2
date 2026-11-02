@@ -523,3 +523,4 @@ Verified by `tests/live/deps.sh`, `tests/live/hooks.sh`, `plugins/factory/script
 - **Hooks from the git install** fire live in `tests/live/deps.sh` when `ANTHROPIC_API_KEY` or
   `CLAUDE_CODE_OAUTH_TOKEN` is set (the isolated config has no login otherwise); without one the
   byte-identity check remains the evidence.
+- After the memory change, three runs per arm: with 1.00 (3/3), without 0.17 (Δ +0.83), $1.18. One judge vote of nine dissented on the with-arm criteria grader.
