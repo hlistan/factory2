@@ -28,7 +28,9 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"${CLAUDE_PLUGIN_ROOT}\"/scripts/guard-bash.sh"
+            "command": "\"${CLAUDE_PLUGIN_ROOT}\"/scripts/gate.sh closed 20 guard-bash.sh",
+            "timeout": 30,
+            "onFailure": "block"
           }
         ]
       },
@@ -37,7 +39,9 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"${CLAUDE_PLUGIN_ROOT}\"/scripts/test-guard.sh"
+            "command": "\"${CLAUDE_PLUGIN_ROOT}\"/scripts/gate.sh closed 20 test-guard.sh",
+            "timeout": 30,
+            "onFailure": "block"
           }
         ]
       }
@@ -48,7 +52,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"${CLAUDE_PLUGIN_ROOT}\"/scripts/subagent-stop.sh",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}\"/scripts/gate.sh record 870 subagent-stop.sh",
             "timeout": 900
           }
         ]

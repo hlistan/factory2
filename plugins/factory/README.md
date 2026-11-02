@@ -61,6 +61,8 @@ harness, not an agent, decides that a criterion passes.
   boundary": the hash checks detect what the hooks can't prevent.
 - Read-only agents are checked by hashing the working tree before and after.
 - Deploy and rollback commands are blocked outside an approved stage 7.
+- Gate hooks fail closed: a guard that crashes or hangs blocks the action inside a factory project
+  (`scripts/gate.sh`), instead of Claude Code's default of letting it through.
 - Agents never write their own memory. The orchestrator records one calibration line per miss in the
   run's committed history file, and folds the lines into each agent's `MEMORY.md` once, at stage 7,
   where they are reviewed in the PR. Memory is presented as reference material, not rules. A

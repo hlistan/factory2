@@ -524,3 +524,9 @@ Verified by `tests/live/deps.sh`, `tests/live/hooks.sh`, `plugins/factory/script
   `CLAUDE_CODE_OAUTH_TOKEN` is set (the isolated config has no login otherwise); without one the
   byte-identity check remains the evidence.
 - After the memory change, three runs per arm: with 1.00 (3/3), without 0.17 (Δ +0.83), $1.18. One judge vote of nine dissented on the with-arm criteria grader.
+- **Gate hooks fail closed** (probed: by default a crashed or timed-out command hook lets the action
+  through; `onFailure: "block"` works on PreToolUse but is ignored on SubagentStop). guard-bash,
+  test-guard and subagent-stop run through `scripts/gate.sh`, which applies its own time limit and turns a
+  crash or hang into a decision: block inside a factory project for the PreToolUse guards (allow in
+  unrelated projects), record-and-allow for the stop gate (`gate_errors`, reported by the orchestrator).
+  PreToolUse entries also carry `onFailure: "block"` and a 30 s timeout.

@@ -29,7 +29,9 @@
 3. When it stops: `bash $S/state.sh verify-freeze` (exit 1: restore the files with `git checkout <frozen_sha>
    -- <path>`, record an incident, and treat the pass as failed), then
    `bash $S/run-checks.sh --set all --known-failures <run>/baseline-failures --tail 40`, then
-   `bash $S/state.sh contract-sync`.
+   `bash $S/state.sh contract-sync`. If `state.sh get '(.gate_timeouts // 0) + (.gate_errors // 0)'`
+   grew during the pass, the stop gate didn't check this implementer (see `stop-gate.log` and
+   `gate-errors.log` in the run directory): say so in the stage summary; your own checks above decide.
 4. Record the pass: `bash $S/state.sh history '.implementer_passes += [{round: $r|tonumber, effort: $e, model: $m, passed: ($p == "true")}]' --arg r <n> --arg e <effort> --arg m <model> --arg p <true|false>`.
 5. **Pass** = all checks green (outside the baseline) and contract-sync exits 0. Otherwise a **fresh**
    implementer at effort `high` (role override applied: `state.sh role implementer high`), briefed with
