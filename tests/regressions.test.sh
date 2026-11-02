@@ -12,15 +12,25 @@ write_config "$R" 'checks:
     bs: '"'"'test "$(printf %s "x\y" | wc -c | tr -d " ")" = 3'"'"''
 run bash "$S/run-checks.sh" --set fast --live --only multi;  t_code 1 "a multi-line check runs line by line (its failing line fails it)"
 run bash "$S/run-checks.sh" --set fast --live --only bs;     t_code 0 "a backslash reaches the command unchanged"
+run bash "$S/run-checks.sh" --set fast --live --json "$T_TMP/rc.json"
+t_eq "$(jq -r 'map(.name + ":" + (.exit|tostring)) | join(",")' "$T_TMP/rc.json")" "multi:1,bs:0" "--json survives multi-line commands"
+# memory-inject: the injected text has no command substitution
+mkdir -p "$R/.claude/agent-memory/factory-planner"; printf -- '- x\n' > "$R/.claude/agent-memory/factory-planner/MEMORY.md"
+hook "$S/memory-inject.sh" '{"agent_type":"factory:planner"}'
+t_has "$(printf '%s' "$OUT" | jq -r .hookSpecificOutput.additionalContext)" 'report'"'"'s `lessons` list' "memory-inject text is literal"
+t_eq "$ERR" "" "and runs nothing"
 
 # ------------------------------------------------ test-guard: path resolution
 R="$(new_repo)"; export FACTORY_ROOT="$R"
-write_config "$R" 'checks:
+write_config "$R" 'ship:
+  deploy: "make deploy-prod"
+checks:
   fast:
     ok: "true"'
 mkdir -p "$R/tests" "$R/src" "$R/docs/specs/tg"
 printf 'test("x @AC-1")\n' > "$R/tests/a.test.ts"
 printf 'export default []\n' > "$R/eslint.config.js"
+printf 'export default {}\n' > "$R/vitest.config.ts"
 printf '# Plan\n\n## Exceptions\n- `eslint.config.js`: needed rule change\n- `.factory/config.yaml`\n' > "$R/docs/specs/tg/plan.md"
 git -C "$R" add -A && git -C "$R" commit -q -m fixture
 bash "$S/state.sh" start tg >/dev/null
@@ -52,15 +62,26 @@ edit $I "$R/eslint.config.js";                             t_code 0 "Exceptions-
 edit "" "$R/eslint.config.js";                             t_code 0 "and the main session"
 edit factory:test-author "$R/eslint.config.js";            t_code 2 "but not the test-author"
 edit $I "$R/.factory/config.yaml";                         t_code 2 ".factory/config.yaml stays frozen even when named"
+# the Exceptions are the ones reviewed at the freeze, and agents can't rewrite the spec or run state
+edit $I "$R/docs/specs/tg/plan.md";                        t_code 2 "the implementer can't edit plan.md"
+edit factory:test-author "$R/docs/specs/tg/contract.json"; t_code 2 "nor can the test-author edit contract.json"
+edit factory:planner "$R/docs/specs/tg/plan.md";           t_code 0 "the planner can"
+printf -- '- `vitest.config.ts`\n' >> "$R/docs/specs/tg/plan.md"
+edit $I "$R/vitest.config.ts";                             t_code 2 "an Exception added after the freeze doesn't unlock the file"
+printf 'export default {weak: 1}\n' > "$R/vitest.config.ts"
+run bash "$S/state.sh" verify-freeze;                      t_code 1 "and verify-freeze reads the frozen plan, not the live one"
+git -C "$R" checkout -q -- vitest.config.ts docs/specs/tg/plan.md
+edit $I "$R/.factory/runs/tg/state.json";                  t_code 2 "agents can't write run state"
+edit factory:planner "$R/.factory/history/tg.json";        t_code 2 "or history"
 
 # ------------------------------------------------ guards: broken config or missing tools fail closed
 printf 'oops: [\n' >> "$R/.factory/config.yaml"
 g() { hook "$S/guard-bash.sh" "$(jq -n --arg c "$1" --arg d "$R" '{tool_name: "Bash", tool_input: {command: $c}, cwd: $d}')"; }
-g 'ls';                                                    t_code 1 "guard-bash: unparsable config is an error, not a pass"
-run bash -c "printf '%s' '{\"tool_name\":\"Bash\",\"tool_input\":{\"command\":\"ls\"}}' | bash '$S/gate.sh' closed 10 guard-bash.sh"
-t_code 2 "and gate.sh turns it into a block"
-t_has "$ERR" "doesn't parse" "naming the cause"
-edit $I "$R/src/new.ts";                                   t_code 1 "test-guard: same during a run"
+g 'ls';                                                    t_code 0 "guard-bash: a broken config doesn't block every command"
+t_has "$ERR" "last version that did" "it falls back to the last config that parsed"
+g 'git push --force origin main';                         t_code 2 "built-in guards still apply"
+g 'make deploy-prod';                                     t_code 2 "and the deploy guard keeps the last good ship.deploy"
+edit "" "$R/src/new.ts";                                   t_code 0 "test-guard doesn't need the config: fixing it isn't blocked"
 git -C "$R" checkout -q -- .factory/config.yaml
 
 # ------------------------------------------------ subagent-stop: an unverifiable freeze blocks
@@ -96,6 +117,9 @@ write_config "$R" 'limits:
   budget_usd: "$20"'
 run bash "$S/state.sh" budget-check;                       t_code 2 "a non-number is a config error, not an exceeded budget"
 write_config "$R" 'limits:
+  budget_usd: -1'
+run bash "$S/state.sh" budget-check;                       t_code 0 "a negative limit means no limit"
+write_config "$R" 'limits:
   budget_usd: 20'
 LC_ALL=de_DE.UTF-8 run bash "$S/state.sh" budget-check;   t_code 0 "within budget"
 t_has "$OUT" '$0.00 of $20' "dot decimal under a comma locale"
@@ -123,9 +147,9 @@ run bash "$S/state.sh" freeze;                             t_code 0 "accepted on
 # a path token doesn't unlock lockfiles; a dependency name does
 printf '{"lockfileVersion": 3, "x": 1}\n' > "$R/package-lock.json"
 printf '# Plan\n\n## Exceptions\n- `eslint.config.js`\n- `src.txt`\n' > "$R/docs/specs/fb/plan.md"
-run bash "$S/state.sh" verify-freeze;                      t_code 1 "a lockfile change with only path tokens in Exceptions"
+run bash "$S/state.sh" freeze;                             t_code 1 "a lockfile change with only path tokens in Exceptions"
 printf '# Plan\n\n## Exceptions\n- `eslint.config.js`\n- `left-pad`\n' > "$R/docs/specs/fb/plan.md"
-run bash "$S/state.sh" verify-freeze;                      t_code 0 "allowed when a dependency is named"
+run bash "$S/state.sh" freeze;                             t_code 0 "allowed when a dependency is named"
 
 # ------------------------------------------------ red-check --tests (stage 5 fix loop)
 mkdir -p "$R/.factory/runs/fb/reports/unit"
@@ -133,9 +157,44 @@ cat > "$R/.factory/runs/fb/reports/unit/junit.xml" <<'EOF'
 <testsuite><testcase classname="s" name="rejects empty title @AC-2"><failure>no</failure></testcase>
 <testcase classname="s" name="old behaviour @AC-1"/></testsuite>
 EOF
-run bash "$S/state.sh" red-check --tests "rejects empty title @AC-2";  t_code 0 "a new failing test is red"
-run bash "$S/state.sh" red-check --tests "old behaviour @AC-1";        t_code 1 "a passing one is flagged"
-run bash "$S/state.sh" red-check --tests "never written";              t_code 1 "a missing one is flagged"
+run bash "$S/state.sh" red-check --test "rejects empty title @AC-2";  t_code 0 "a new failing test is red"
+run bash "$S/state.sh" red-check --test "old behaviour @AC-1";        t_code 1 "a passing one is flagged"
+run bash "$S/state.sh" red-check --test "never written";              t_code 1 "a missing one is flagged"
+printf '%s\n' '<testsuite><testcase classname="s" name="returns 400, not 500"><failure>no</failure></testcase>' \
+  '<testcase classname="s" name="returns 400 for a bad id"/><testcase classname="s" name="not 500 ever"/></testsuite>' \
+  > "$R/.factory/runs/fb/reports/unit/junit.xml"
+run bash "$S/state.sh" red-check --test "returns 400, not 500";       t_code 0 "a name with a comma is one name"
+run bash "$S/state.sh" red-check --test "returns 400";                t_code 1 "an ambiguous partial name matches nothing"
+
+# ------------------------------------------------ first freeze in a project below the git top level
+M="$(new_repo)"
+printf '{"name":"top"}\n' > "$M/package.json"
+mkdir -p "$M/app/docs/specs/mono"
+printf '{"name":"app"}\n' > "$M/app/package.json"
+write_config "$M/app" 'checks:
+  fast:
+    ok: "true"'
+printf '# Plan\n' > "$M/app/docs/specs/mono/plan.md"
+git -C "$M" add -A && git -C "$M" commit -q -m mono
+FACTORY_ROOT="$M/app" bash "$S/state.sh" start mono >/dev/null
+FACTORY_ROOT="$M/app" run bash "$S/state.sh" freeze;      t_code 0 "an unchanged subdirectory project freezes"
+
+# ------------------------------------------------ state.sh branch records the base after switching
+B="$(new_repo)"
+write_config "$B" 'checks:
+  fast:
+    ok: "true"'
+git -C "$B" add -A && git -C "$B" commit -q -m config
+git -C "$B" switch -q -c old && git -C "$B" switch -q main
+printf 'x\n' > "$B/new.txt" && git -C "$B" add -A && git -C "$B" commit -q -m upstream
+git -C "$B" switch -q old
+FACTORY_ROOT="$B" bash "$S/state.sh" start br >/dev/null
+git -C "$B" switch -q main
+FACTORY_ROOT="$B" run bash "$S/state.sh" branch;          t_code 0 "branch creates factory/br"
+t_eq "$(git -C "$B" branch --show-current)" "factory/br" "and switches to it"
+t_eq "$(jq -r .base "$B/.factory/runs/br/state.json")" "$(git -C "$B" rev-parse main)" "base is where the branch starts, not where start ran"
+printf 'dirty\n' >> "$B/new.txt"
+FACTORY_ROOT="$B" run bash "$S/state.sh" branch;          t_code 1 "refuses with uncommitted changes"
 
 # ------------------------------------------------ the state lock: a dead owner's lock is stolen
 f="$R/.factory/runs/fb/state.json"

@@ -66,15 +66,16 @@ fi
 
 budget="${FACTORY_GATE_BUDGET:-840}"   # gate.sh's limit is 870 s (hooks.json 900 s), less the time used so far
 case "$budget" in ''|*[!0-9]*) budget=840 ;; esac
+limit="$budget"
 budget=$((budget - ($(date +%s) - t_start))); [ "$budget" -lt 1 ] && budget=1
 known=()
 [ -f "$run/baseline-failures" ] && known=(--known-failures "$run/baseline-failures")
 out="$(factory_py "$FACTORY_LIB/timeout.py" "$budget" bash "$FACTORY_SCRIPTS/run-checks.sh" --set fast --tail 30 "${known[@]+"${known[@]}"}" 2>&1)"
 code=$?
 if [ "$code" -eq 124 ]; then
-  printf '%s\t%s\t%s\t-\ttimeout after %ss\n' "$(now_utc)" "$agent" "$id" "$budget" >> "$run/stop-gate.log"
+  printf '%s\t%s\t%s\t-\ttimeout after %ss\n' "$(now_utc)" "$agent" "$id" "$limit" >> "$run/stop-gate.log"
   state_update '.gate_timeouts = ((.gate_timeouts // 0) + 1)' 2>/dev/null
-  echo "factory: the fast checks took longer than ${budget}s; the stop gate let the implementer finish unchecked. The orchestrator re-runs the checks." >&2
+  echo "factory: the fast checks took longer than ${limit}s; the stop gate let the implementer finish unchecked. The orchestrator re-runs the checks." >&2
   rm -f "$counter"; exit 0
 fi
 # 0 passed, 3 nothing to run; anything else (1 failed, 2 config error, a signal) is not a pass

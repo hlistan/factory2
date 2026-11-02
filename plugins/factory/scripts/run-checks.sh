@@ -84,7 +84,7 @@ while IFS= read -r -d '' name && IFS= read -r -d '' cmd; do
   ) > "$log" 2>&1 < /dev/null
   code=$?
   secs=$(( $(date +%s) - start ))
-  printf '%s\t%s\t%s\t%s\n' "$name" "$code" "$secs" "$cmd" >> "$results"
+  jq -nc --arg n "$name" --argjson c "$code" --argjson s "$secs" --arg cmd "$cmd" '{name: $n, exit: $c, seconds: $s, command: $cmd}' >> "$results"
   ran="$ran${ran:+, }$name"
   [ "$code" -eq 0 ] && continue
   failed_names="$failed_names$name
@@ -101,7 +101,7 @@ while IFS= read -r -d '' name && IFS= read -r -d '' cmd; do
 done < "$plan"
 
 if [ -n "$json" ]; then
-  jq -R -s 'split("\n") | map(select(length > 0) | split("\t") | {name: .[0], exit: (.[1] | tonumber), seconds: (.[2] | tonumber), command: (.[3:] | join("\t"))})' "$results" > "$json"
+  jq -s '.' "$results" > "$json"
 fi
 if [ -n "$save_failures" ]; then
   mkdir -p "$(dirname "$save_failures")" 2>/dev/null

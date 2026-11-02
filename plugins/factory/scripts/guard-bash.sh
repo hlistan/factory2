@@ -19,7 +19,7 @@
 input="$(cat)"
 . "$(cd "$(dirname "$0")" && pwd)/lib/common.sh"
 factory_hook_log guard-bash "$input"
-factory_guard_prereqs   # exit 1 (gate.sh blocks) inside a factory project without jq/python3 or a parsable config
+factory_guard_prereqs   # exit 1 (gate.sh blocks) in a factory project without jq/python3; a bad config falls back
 
 command="$(printf '%s' "$input" | jq -r '.tool_input.command // empty' 2>/dev/null)"
 [ -n "$command" ] || exit 0
@@ -181,7 +181,7 @@ function check(w, nw, depth,   i, t, prog, j, s, husky) {
     if (t ~ /^(\{|\}|!|if|then|else|elif|do|while|until|time|nohup|builtin|stdbuf|caffeinate)$/) { i++; continue }
     if (t == "command") { i++; while (i < nw && w[i] ~ /^-[pV]+$/) i++; continue }
     if (t == "exec") { i++; while (i < nw && w[i] ~ /^-/) { if (w[i] == "-a") i++; i++ } continue }
-    if (t == "xargs") { i++; while (i < nw && w[i] ~ /^-/) { if (w[i] ~ /^-[IiLlnPsEedaR]$/) i++; i++ } continue }
+    if (t == "xargs") { i++; while (i < nw && w[i] ~ /^-/) { if (w[i] ~ /^-[ILnPsEdaRJS]$/) i++; i++ } continue }
     if (t ~ /^[A-Za-z_][A-Za-z0-9_]*=/) { if (t ~ /^HUSKY=0$/ || t ~ /^HUSKY_SKIP_HOOKS=(1|true)$/) husky = 1; i++; continue }
     if (t == "sudo" || t == "doas") { i++; while (i < nw && w[i] ~ /^-/) { if (w[i] ~ /^-[ugCDhpRrTt]$/) i++; i++ } continue }
     if (t == "env") {

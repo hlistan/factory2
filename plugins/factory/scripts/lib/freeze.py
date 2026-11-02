@@ -197,7 +197,7 @@ def plan_exceptions(plan):
 
 def at_base(root, base, path):
     """The file's bytes at commit `base`, or None when it didn't exist there."""
-    r = subprocess.run(["git", "-C", root, "show", f"{base}:{path}"], capture_output=True)
+    r = subprocess.run(["git", "-C", root, "show", f"{base}:./{path}"], capture_output=True)
     return r.stdout if r.returncode == 0 else None
 
 
@@ -368,6 +368,9 @@ def main(argv):
             ("frozen.tsv", "".join(rows)),
             ("deps.json", json.dumps(deps, indent=2, sort_keys=True) + "\n"),
             ("checks.snapshot.json", json.dumps((cfg or {}).get("checks") or {}, indent=2) + "\n"),
+            # the Exceptions as reviewed at this freeze: verify-freeze and test-guard read this copy, so an
+            # agent that edits plan.md later can't grant itself an exception
+            ("plan.frozen.md", open(a.plan, encoding="utf-8").read() if a.plan and os.path.isfile(a.plan) else ""),
         ):
             tmp = os.path.join(a.run, name + ".tmp")
             with open(tmp, "w", encoding="utf-8") as f:

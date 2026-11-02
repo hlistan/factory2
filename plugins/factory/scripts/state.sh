@@ -5,6 +5,7 @@
 #                                    Both exit 3 while CLAUDE_CODE_EFFORT_LEVEL is set: it overrides every
 #                                    agent's effort, even the Agent tool's parameter. --effort-env-ok (after
 #                                    the user agreed) runs anyway and records the level in state.effort_env.
+#   state.sh branch                  switch to (or create) factory/<slug> and record the run's base there
 #   state.sh end                     release the checkout (the run's files stay)
 #   state.sh active                  print the active slug (exit 1 if none)
 #   state.sh get <jq filter>         read state.json             state.sh set <jq expression> [jq args]
@@ -17,8 +18,8 @@
 #   state.sh freeze                  freeze tests and check-defining files, snapshot the check commands
 #   state.sh verify-freeze [--only tests|checks]
 #   state.sh contract-sync           set `passes` in contract.json from the JUnit reports (harness only)
-#   state.sh red-check [--tests <name,...>]  list AC tests that pass before the code exists; with
-#                                    --tests (stage 5), check that each named new test fails
+#   state.sh red-check [--test <name>...]  list AC tests that pass before the code exists; with
+#                                    --test (stage 5, once per new test), check that each named test fails
 #   state.sh calibrate <agent> <line>    record one lesson line for an agent (folded at stage 7)
 #   state.sh fold-memory             append the run's lesson lines to each agent's MEMORY.md (idempotent)
 #   state.sh history <jq expr> [jq args] update the committed history record
@@ -113,6 +114,7 @@ case "$cmd" in
     if [ -n "$cur" ] && [ "$cur" != "$slug" ]; then echo "factory: run '$cur' is active in this checkout; finish it, or use claude --worktree for a parallel run" >&2; exit 1; fi
     run="$runs/$slug"
     mkdir -p "$run/reports" "$root/.factory/history"
+    factory_config_json >/dev/null || { echo "factory: .factory/config.yaml doesn't parse; fix it before starting a run" >&2; exit 2; }
     [ -f "$runs/.gitignore" ] || printf '*\n' > "$runs/.gitignore"
     if [ ! -f "$run/state.json" ]; then
       port="$(derive_port "$slug")"
@@ -136,6 +138,22 @@ case "$cmd" in
     printf '%s\n' "$slug" > "$runs/active"
     state_update '.effort_env = (if $e == "" then null else $e end)' --arg e "${CLAUDE_CODE_EFFORT_LEVEL:-}"
     echo "factory: run '$slug' active (port $(jq -r .port "$run/state.json"))"
+    ;;
+  branch)
+    # stage 1: switch to (or create) factory/<slug>, then record the run's base as the commit the branch
+    # starts from, so the first freeze compares with the tree the run actually started on
+    need_active
+    [ -z "$(git -C "$root" status --porcelain --untracked-files=no)" ] || { echo "factory: the working tree has uncommitted changes; commit or stash them first" >&2; exit 1; }
+    b="factory/$slug"
+    if git -C "$root" rev-parse --verify -q "refs/heads/$b" >/dev/null; then
+      git -C "$root" switch -q "$b" || exit 1
+    else
+      git -C "$root" switch -q -c "$b" || exit 1
+    fi
+    if [ "$(jq -r '.frozen // false' "$run/state.json")" != "true" ]; then
+      state_update '.base = $b | .branch = $br' --arg b "$(git -C "$root" rev-parse HEAD)" --arg br "$b"
+    fi
+    echo "factory: on $b (base $(state_get .base | cut -c1-12))"
     ;;
   resume)
     effort_env_gate "${2:-}"
@@ -198,7 +216,9 @@ case "$cmd" in
     ;;
   verify-freeze)
     need_active; cj="$(config_json_file)"
-    factory_py "$FACTORY_LIB/freeze.py" verify --root "$root" --config "$cj" --run "$run" --plan "$(spec_dir "$slug")/plan.md" "$@"
+    # the plan as it was at the last freeze (orchestrator-reviewed), never the live file
+    plan="$run/plan.frozen.md"; [ -f "$plan" ] || plan="$(spec_dir "$slug")/plan.md"
+    factory_py "$FACTORY_LIB/freeze.py" verify --root "$root" --config "$cj" --run "$run" --plan "$plan" "$@"
     ;;
   contract-sync)
     need_active
@@ -208,8 +228,13 @@ case "$cmd" in
   red-check)
     need_active
     factory_py "$FACTORY_LIB/junit.py" lint "$run/reports" || true
-    if [ "${1:-}" = "--tests" ]; then
-      factory_py "$FACTORY_LIB/junit.py" red-tests "$run/reports" "${2:-}"
+    if [ "${1:-}" = "--test" ]; then
+      names=()
+      while [ $# -gt 0 ]; do
+        [ "$1" = "--test" ] && [ $# -ge 2 ] || { echo "factory: red-check --test <name> [--test <name>...]" >&2; exit 2; }
+        names+=("$2"); shift 2
+      done
+      factory_py "$FACTORY_LIB/junit.py" red-tests "$run/reports" "${names[@]}"
     else
       factory_py "$FACTORY_LIB/junit.py" red "$(spec_dir "$slug")/contract.json" "$run/reports"
     fi
@@ -248,7 +273,7 @@ case "$cmd" in
     total="$(jq -r "$SPEND_TOTAL" "$run/state.json")"; total="${total:-0}"
     limit="$(cfg '.limits.budget_usd' 0)"
     # numbers only (a "$20" or "20 USD" is a config error, not an exceeded budget); 0 or less means no limit
-    printf '%s' "$limit" | grep -E -q '^[0-9]+([.][0-9]+)?$' || { echo "factory: limits.budget_usd must be a number of dollars, like 60 (got '$limit')" >&2; exit 2; }
+    printf '%s' "$limit" | grep -E -q '^-?[0-9]+([.][0-9]+)?$' || { echo "factory: limits.budget_usd must be a number of dollars, like 60 (got '$limit')" >&2; exit 2; }
     echo "factory: estimated spend \$$(LC_ALL=C awk -v t="$total" 'BEGIN { printf "%.2f", t }') of \$$limit"
     jq -n --argjson t "$total" --argjson l "$limit" 'if $l > 0 and $t > $l then halt_error(1) else empty end' 2>/dev/null || { echo "factory: budget exceeded; pausing at this gate" >&2; exit 1; }
     ;;

@@ -3,8 +3,10 @@
 `S=${CLAUDE_PLUGIN_ROOT}/scripts`. Spec directory: `docs/specs/<slug>/` (`bash $S/state.sh paths`).
 
 ## Stage 1: analyze and plan (`state.sh stage 1`, `phase plan`)
-1. Branch: `git switch -c factory/<slug>` from an up-to-date `project.default_branch` (or switch to it
-   when resuming). The working tree must be clean; if not, stop and ask.
+1. Branch: update `project.default_branch` first (`git switch <default> && git pull --ff-only`) unless
+   resuming, then `bash $S/state.sh branch`: it creates or switches to `factory/<slug>` and records the
+   run's base there (the first freeze compares check files with it). Exit 1 means uncommitted changes:
+   stop and ask.
 2. Retrieval: spawn `learnings-researcher` (default effort low), purpose `planning`, with the feature request; it returns past
    lessons from `docs/solutions/` (or the configured docs_root). Skip when `learning.enabled` is false.
 3. Optional: when the request depends on outside facts (an API's behaviour, a library's limits, a

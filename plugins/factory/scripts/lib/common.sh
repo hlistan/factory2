@@ -42,6 +42,11 @@ factory_config_json() { # the project's config as JSON; {} when there is none
     local f="$FACTORY_ROOT_DIR/.factory/config.yaml"
     if [ -f "$f" ]; then
       _FACTORY_CFG="$(factory_py "$FACTORY_LIB/yaml2json.py" "$f")" || return 2
+      # keep the last config that parsed (git-ignored run area), for the guards' fallback
+      local g="$FACTORY_ROOT_DIR/.factory/runs/.config.lastgood.json"
+      if [ -d "$FACTORY_ROOT_DIR/.factory/runs" ] && [ "$(cat "$g" 2>/dev/null)" != "$_FACTORY_CFG" ]; then
+        printf '%s' "$_FACTORY_CFG" > "$g.tmp.$$" 2>/dev/null && mv "$g.tmp.$$" "$g" 2>/dev/null
+      fi
     else
       _FACTORY_CFG="{}"
     fi
@@ -112,13 +117,22 @@ state_update() { # <jq expression> [--arg/--argjson pairs...]: atomically rewrit
   return 1
 }
 
-factory_guard_prereqs() { # guards: outside a factory project, nothing to guard (exit 0); inside one, a
-  # missing jq or python3, or a .factory/config.yaml that doesn't parse, must not switch the guard off:
-  # exit 1, which gate.sh turns into a block with an explanation
+factory_guard_prereqs() { # guard-bash: outside a factory project, nothing to guard (exit 0); inside one,
+  # a missing jq or python3 must not switch the guard off: exit 1, which gate.sh turns into a block.
+  # A config that doesn't parse falls back to the last one that did (so the deploy guard keeps its
+  # commands, and Bash isn't blocked while someone fixes the file), with a warning on stderr.
   [ -f "$FACTORY_ROOT_DIR/.factory/config.yaml" ] || { factory_has jq || exit 0; return 0; }
   factory_has jq || { echo "factory: jq is missing" >&2; exit 1; }
   factory_has python3 || { echo "factory: python3 is missing" >&2; exit 1; }
-  factory_config_json >/dev/null 2>&1 || { echo "factory: .factory/config.yaml doesn't parse" >&2; exit 1; }
+  factory_config_json >/dev/null 2>&1 && return 0
+  local g="$FACTORY_ROOT_DIR/.factory/runs/.config.lastgood.json"
+  if [ -s "$g" ]; then
+    _FACTORY_CFG="$(cat "$g")"
+    echo "factory: .factory/config.yaml doesn't parse; guarding with the last version that did. Fix the file." >&2
+  else
+    _FACTORY_CFG="{}"
+    echo "factory: .factory/config.yaml doesn't parse and no earlier version is known; only the built-in git and rm guards apply. Fix the file." >&2
+  fi
 }
 
 now_utc() { date -u +%Y-%m-%dT%H:%M:%SZ; }

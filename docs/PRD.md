@@ -560,3 +560,14 @@ regression tests in `tests/regressions.test.sh` and the per-script suites. The b
   Regression tests with no criterion are untagged (no `@AC-0`). QA gets `<run>/evidence/qa/`. Stage 7
   writes rounds and spend to history; escalations are recorded. Agent `lessons` are candidates only.
   qa-evaluator preloads the `playwright-cli` skill. Templates and scripts of later milestones are marked.
+- **Second review pass (11 more).** Exceptions are snapshotted at each freeze (`<run>/plan.frozen.md`);
+  verify-freeze and test-guard read only that copy, so an agent editing plan.md can't grant itself an
+  exception (flow: planner adds it → `state.sh freeze` → implementer → `state.sh freeze`). Implementer
+  and test-author can't edit `docs/specs/**`; no agent edits `.factory/runs/**` or `.factory/history/**`.
+  A config that doesn't parse no longer deadlocks a session: guard-bash uses the last config that parsed
+  (`.factory/runs/.config.lastgood.json`), test-guard doesn't need it, and `state.sh start` refuses an
+  unparsable config. `state.sh branch` creates the run branch and records the base there. The first
+  freeze works in projects below the git top level. `red-check --test` takes one name per flag
+  (commas allowed; partial names only when unambiguous). `run-checks --json` handles multi-line
+  commands. Negative budget means no limit. xargs option arity fixed. memory-inject's text no longer
+  contains a command substitution.

@@ -20,7 +20,10 @@ factory_hook_log test-guard "$input"
 slug="$(factory_active_slug)"; [ -n "$slug" ] || exit 0
 run="$FACTORY_ROOT_DIR/.factory/runs/$slug"
 [ -f "$run/state.json" ] || exit 0
-factory_guard_prereqs   # during a run: exit 1 (gate.sh blocks) without jq/python3 or a parsable config
+# during a run: exit 1 (gate.sh blocks) without jq or python3. The config isn't needed here, so a config
+# that doesn't parse never blocks the Edit that fixes it.
+factory_has jq || { echo "factory: jq is missing" >&2; exit 1; }
+factory_has python3 || { echo "factory: python3 is missing" >&2; exit 1; }
 
 path="$(printf '%s' "$input" | jq -r '.tool_input.file_path // .tool_input.notebook_path // empty' 2>/dev/null)"
 [ -n "$path" ] || exit 0
@@ -48,6 +51,12 @@ case "$lrel" in
     deny "agent memory is curated by the factory harness, not by agents. Put any lesson in your final report instead." ;;
   .claude/settings.json|.claude/settings.local.json)
     deny "Claude Code's project settings can't change during a factory run (they control the hooks that guard it). Ask the user." ;;
+  .factory/runs/*|.factory/history/*)
+    [ -n "$agent" ] && deny "factory's run state and history are written only by the harness scripts." ;;
+  docs/specs/*)
+    case "$agent" in factory:implementer|factory:test-author)
+      deny "the PRD, contract.json and plan.md are the reviewed spec; only the planner changes them, through the orchestrator. If the spec is wrong or the work needs an exception, say so in your final report." ;;
+    esac ;;
 esac
 
 frozen="$run/frozen.tsv"
@@ -63,10 +72,10 @@ if [ "$list" = "tests" ]; then
   [ "$phase" = "tests" ] && { [ "$agent" = "factory:test-author" ] || [ -z "$agent" ]; } && exit 0
   deny "$rel is a frozen test. It was reviewed and frozen before the code existed; making it pass means changing the code, not the test. If the test itself is wrong, stop and say so in your final answer."
 fi
-# a check-defining file the plan's reviewed `## Exceptions` section names may be edited by the implementer
+# a check-defining file the reviewed plan's `## Exceptions` section (as of the last freeze) names may be edited by the implementer
 # (or the main session); freeze verification accepts the same change. Never .factory/config.yaml.
 if [ "$rel" != ".factory/config.yaml" ] && { [ "$agent" = "factory:implementer" ] || [ -z "$agent" ]; }; then
-  plan="$root/docs/specs/$slug/plan.md"
+  plan="$run/plan.frozen.md"   # the Exceptions as reviewed at the last freeze, never the live plan.md
   if [ -f "$plan" ] && factory_py "$FACTORY_LIB/freeze.py" exceptions --root "$root" --plan "$plan" 2>/dev/null | grep -Fqx -- "$rel"; then
     exit 0
   fi

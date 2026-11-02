@@ -35,6 +35,8 @@ g 'command -p git push --force origin main';  t_code 2 "force-push behind comman
 g 'echo origin | xargs -I{} git push -f {} main'; t_code 2 "force-push behind xargs"
 g 'exec -a x git push --force origin main';     t_code 2 "force-push behind exec -a"
 g 'command -v git';                             t_code 0 "command -v is harmless"
+g 'echo origin | xargs -i git push --force {} main'; t_code 2 "GNU xargs -i takes no separate argument"
+g 'echo x | xargs -J % git push -f origin main';     t_code 2 "BSD xargs -J takes one"
 bash "$S/state.sh" start demo >/dev/null
 g 'make deploy-prod';                        t_code 2 "deploy at stage 1"
 bash "$S/state.sh" stage 7 >/dev/null

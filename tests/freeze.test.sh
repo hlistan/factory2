@@ -71,8 +71,12 @@ run bash "$S/state.sh" verify-freeze;                    t_code 1 "an unplanned 
 t_has "$OUT" "zod" "names the dependency"
 printf -- '- add `zod` for input validation\n' >> "$R/docs/specs/demo/plan.md"
 printf '{"lockfileVersion": 3, "zod": true}\n' > "$R/package-lock.json"
+run bash "$S/state.sh" verify-freeze;                    t_code 1 "an Exception added after the freeze doesn't count yet"
+cp -R "$R/.factory/runs/demo" "$T_TMP/demo-run.bak"   # the re-freeze below is undone afterwards
+run bash "$S/state.sh" freeze;                           t_code 0 "re-freeze (the orchestrator's step after the planner) accepts the planned dependency"
 run bash "$S/state.sh" verify-freeze;                    t_code 0 "a planned dependency and its lockfile pass"
 git -C "$R" checkout -q -- package.json package-lock.json docs/specs/demo/plan.md
+rm -rf "$R/.factory/runs/demo" && mv "$T_TMP/demo-run.bak" "$R/.factory/runs/demo"
 printf '{"lockfileVersion": 3, "x": 1}\n' > "$R/package-lock.json"
 run bash "$S/state.sh" verify-freeze;                    t_code 1 "a lockfile change with no planned dependency is caught"
 git -C "$R" checkout -q -- package-lock.json

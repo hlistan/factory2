@@ -30,7 +30,8 @@
       this phase). Spawn test-author: one failing test that reproduces it, tagged with the criterion it
       violates, or untagged when no criterion covers it. Its report lists the new tests' names.
    2. Red check for the new tests only: `bash $S/run-checks.sh --set all --live --tail 20`, then
-      `bash $S/state.sh red-check --tests "<name>[,<name>...]"`: each named test must fail (exit 0).
+      `bash $S/state.sh red-check --test "<name>" [--test "<name>" ...]` (one `--test` per new test, its
+      exact name from the test-author's report): each named test must fail (exit 0).
       `run-checks.sh --live` is right here: the config is frozen, so live and snapshot agree.
    3. test-reviewer (read-only batch) → commit → `bash $S/state.sh freeze` (extends the freeze).
    4. `bash $S/state.sh phase review`, then a **fresh** implementer at `high` → checks and
