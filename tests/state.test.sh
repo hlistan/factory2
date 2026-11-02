@@ -122,6 +122,21 @@ t_code 3 "resume refuses too"
 FACTORY_ROOT="$R3" run bash "$S/state.sh" resume eff
 t_code 0 "resume without the variable"
 t_eq "$(jq -r .effort_env "$R3/.factory/runs/eff/state.json")" "null" "clears the recorded level"
+# role: frontmatter defaults, an explicit effort, then roles overrides from the config
+R5="$(new_repo)"
+write_config "$R5" 'roles:
+  reviewer-security: {model: opus}
+  planner: {effort: high}'
+t_eq "$(FACTORY_ROOT="$R5" bash "$S/state.sh" role planner)" "opus high" "roles effort override"
+t_eq "$(FACTORY_ROOT="$R5" bash "$S/state.sh" role reviewer-security)" "opus high" "roles model override keeps the default effort"
+t_eq "$(FACTORY_ROOT="$R5" bash "$S/state.sh" role prd-reviewer)" "opus medium" "default: Opus at medium"
+t_eq "$(FACTORY_ROOT="$R5" bash "$S/state.sh" role learnings-researcher)" "opus high" "learnings-researcher: Opus high"
+t_eq "$(FACTORY_ROOT="$R5" bash "$S/state.sh" role researcher)" "sonnet high" "researcher: Sonnet high"
+t_eq "$(FACTORY_ROOT="$R" bash "$S/state.sh" role reviewer-security)" "fable high" "reviewer-security: Fable high"
+t_eq "$(FACTORY_ROOT="$R5" bash "$S/state.sh" role implementer)" "opus low" "implementer first pass: low"
+t_eq "$(FACTORY_ROOT="$R5" bash "$S/state.sh" role implementer high)" "opus high" "implementer re-run: high"
+FACTORY_ROOT="$R5" run bash "$S/state.sh" role nobody;    t_code 2 "unknown agent"
+FACTORY_ROOT="$R5" run bash "$S/state.sh" role "../x";    t_code 2 "agent name is validated"
 # bugfix runs: start --issue records the issue and the run that caused it, in state and history
 R4="$(new_repo)"
 FACTORY_ROOT="$R4" run bash "$S/state.sh" start fix-12-login --issue 12 --caused-by dark-mode

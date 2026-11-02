@@ -16,7 +16,7 @@ run bash "$S/run-checks.sh" --set fast --live --json "$T_TMP/rc.json"
 t_eq "$(jq -r 'map(.name + ":" + (.exit|tostring)) | join(",")' "$T_TMP/rc.json")" "multi:1,bs:0" "--json survives multi-line commands"
 # memory-inject: the injected text has no command substitution
 mkdir -p "$R/.claude/agent-memory/factory-planner"; printf -- '- x\n' > "$R/.claude/agent-memory/factory-planner/MEMORY.md"
-hook "$S/memory-inject.sh" '{"agent_type":"factory:planner"}'
+hook "$S/memory-inject.sh" '{"agent_type":"factory2:planner"}'
 t_has "$(printf '%s' "$OUT" | jq -r .hookSpecificOutput.additionalContext)" 'report'"'"'s `lessons` list' "memory-inject text is literal"
 t_eq "$ERR" "" "and runs nothing"
 
@@ -40,7 +40,7 @@ ln -s a.test.ts "$R/tests/link.ts"
 edit() { # <agent or ""> <path> [cwd]
   hook "$S/test-guard.sh" "$(jq -n --arg a "$1" --arg p "$2" --arg c "${3:-}" '{tool_name: "Write", tool_input: {file_path: $p}} + (if $a == "" then {} else {agent_type: $a} end) + (if $c == "" then {} else {cwd: $c} end)')"
 }
-I=factory:implementer
+I=factory2:implementer
 edit $I "$R/tests/a.test.ts";                              t_code 2 "frozen test blocked (baseline)"
 edit $I "$R/nope/../tests/a.test.ts";                      t_code 2 ".. through a missing directory"
 edit $I "tests/../tests/a.test.ts";                        t_code 2 "relative path with .."
@@ -52,7 +52,7 @@ if [ -e "$R/TESTS/A.TEST.TS" ]; then
 fi
 edit $I "$R/nope/../.claude/agent-memory/factory-x/MEMORY.md"; t_code 2 "memory path through .."
 edit $I "$R/.claude/settings.json";                        t_code 2 "project settings are protected during a run"
-edit factory:reviewer-spec "/tmp/factory-outside.txt";     t_code 2 "read-only role blocked outside the project too"
+edit factory2:reviewer-spec "/tmp/factory-outside.txt";     t_code 2 "read-only role blocked outside the project too"
 edit $I "$R/src/new.ts";                                   t_code 0 "implementer writes product code"
 edit $I "$T_TMP/outside.txt";                              t_code 0 "outside the project is not test-guard's business"
 L="$T_TMP/link-root"; ln -s "$R" "$L"
@@ -60,12 +60,12 @@ FACTORY_ROOT="$L" edit $I "$L/.claude/agent-memory/factory-new/MEMORY.md"; t_cod
 # plan Exceptions unlock a named check-defining file for the implementer only, never the config
 edit $I "$R/eslint.config.js";                             t_code 0 "Exceptions-named check file: implementer may edit"
 edit "" "$R/eslint.config.js";                             t_code 0 "and the main session"
-edit factory:test-author "$R/eslint.config.js";            t_code 2 "but not the test-author"
+edit factory2:test-author "$R/eslint.config.js";            t_code 2 "but not the test-author"
 edit $I "$R/.factory/config.yaml";                         t_code 2 ".factory/config.yaml stays frozen even when named"
 # the Exceptions are the ones reviewed at the freeze, and agents can't rewrite the spec or run state
 edit $I "$R/docs/specs/tg/plan.md";                        t_code 2 "the implementer can't edit plan.md"
-edit factory:test-author "$R/docs/specs/tg/contract.json"; t_code 2 "nor can the test-author edit contract.json"
-edit factory:planner "$R/docs/specs/tg/plan.md";           t_code 0 "the planner can"
+edit factory2:test-author "$R/docs/specs/tg/contract.json"; t_code 2 "nor can the test-author edit contract.json"
+edit factory2:planner "$R/docs/specs/tg/plan.md";           t_code 0 "the planner can"
 printf -- '- `vitest.config.ts`\n' >> "$R/docs/specs/tg/plan.md"
 edit $I "$R/vitest.config.ts";                             t_code 2 "an Exception added after the freeze doesn't unlock the file"
 printf 'export default {weak: 1}\n' > "$R/vitest.config.ts"
@@ -85,7 +85,7 @@ t_has "$OUT" "Exceptions recorded since the last freeze: vitest.config.ts" "and 
 git -C "$R" checkout -q -- docs/specs/tg/plan.md
 bash "$S/state.sh" freeze >/dev/null
 edit $I "$R/.factory/runs/tg/state.json";                  t_code 2 "agents can't write run state"
-edit factory:planner "$R/.factory/history/tg.json";        t_code 2 "or history"
+edit factory2:planner "$R/.factory/history/tg.json";        t_code 2 "or history"
 
 # ------------------------------------------------ guards: broken config or missing tools fail closed
 printf 'oops: [\n' >> "$R/.factory/config.yaml"
@@ -100,7 +100,7 @@ git -C "$R" checkout -q -- .factory/config.yaml
 # ------------------------------------------------ subagent-stop: an unverifiable freeze blocks
 bash "$S/state.sh" set '.frozen = true' >/dev/null
 mv "$R/.factory/runs/tg/frozen.tsv" "$R/.factory/runs/tg/frozen.tsv.bak"
-hook "$S/subagent-stop.sh" '{"hook_event_name":"SubagentStop","agent_type":"factory:implementer","agent_id":"s1"}'
+hook "$S/subagent-stop.sh" '{"hook_event_name":"SubagentStop","agent_type":"factory2:implementer","agent_id":"s1"}'
 t_code 2 "verify-freeze exit 2 (no frozen.tsv) blocks"
 mv "$R/.factory/runs/tg/frozen.tsv.bak" "$R/.factory/runs/tg/frozen.tsv"
 

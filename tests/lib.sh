@@ -4,7 +4,7 @@
 set -u
 TESTS="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO="$(dirname "$TESTS")"
-PLUGIN="$REPO/plugins/factory"
+PLUGIN="$REPO/plugins/factory2"
 S="$PLUGIN/scripts"
 FIX="$TESTS/fixtures"
 T_PASS=0

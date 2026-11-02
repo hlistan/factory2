@@ -16,10 +16,10 @@ write_config "$R" 'limits:
 bash "$S/state.sh" start s1 >/dev/null
 bash "$S/state.sh" stage 4 >/dev/null
 ev() { jq -n --arg a "$1" --arg id "$2" --arg t "$3" '{agent_type: $a, agent_id: $id, agent_transcript_path: $t}'; }
-hook "$S/spend.sh" "$(ev factory:implementer a1 "$FIX/transcripts/sample.jsonl")"; t_code 0 "spend hook exits 0"
-hook "$S/spend.sh" "$(ev factory:implementer a1 "$FIX/transcripts/sample.jsonl")"; t_code 0 "repeat stop of one agent"
+hook "$S/spend.sh" "$(ev factory2:implementer a1 "$FIX/transcripts/sample.jsonl")"; t_code 0 "spend hook exits 0"
+hook "$S/spend.sh" "$(ev factory2:implementer a1 "$FIX/transcripts/sample.jsonl")"; t_code 0 "repeat stop of one agent"
 hook "$S/spend.sh" "$(ev general-purpose a2 "$FIX/transcripts/sample.jsonl")"; t_code 0 "non-factory agents are ignored"
-hook "$S/spend.sh" "$(ev factory:implementer a3 /nonexistent.jsonl)"; t_code 0 "a missing transcript never blocks"
+hook "$S/spend.sh" "$(ev factory2:implementer a3 /nonexistent.jsonl)"; t_code 0 "a missing transcript never blocks"
 t_eq "$(jq -r '.spend.agents | length' "$R/.factory/runs/s1/state.json")" "1" "one priced spawn, stored once"
 run bash "$S/state.sh" spend
 t_eq "$(printf '%s' "$OUT" | jq -r '.total')" "0.07228" "total is not double-counted"

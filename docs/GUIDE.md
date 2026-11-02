@@ -1,4 +1,4 @@
-# factory: user guide
+# factory2: user guide
 
 How the harness works, how to run a feature through it, how to watch it, how to keep control of what it
 produces, and how it learns from your feedback.
@@ -29,7 +29,7 @@ flowchart TD
     S7 --> S8[8 Monitor]
     S7 -- smoke fails --> I
     S8 -- anomaly --> I[Issue filed first<br/>factory-incident]
-    I --> B([New bugfix run:<br/>/factory:run --issue ref])
+    I --> B([New bugfix run:<br/>/factory2:run --issue ref])
     B -.-> S1
 ```
 
@@ -51,22 +51,34 @@ Three rules hold the whole thing together:
 
 | Agent | Job | Model and effort | Can edit files? |
 |---|---|---|---|
-| Orchestrator (`/factory:run`, your session) | Routes work, runs scripts, stops at gates | Opus, high | Only run state, through scripts |
-| `planner` | Writes `prd.md`, `contract.json` and `plan.md` | Opus, high | Spec files |
-| `prd-reviewer` | Reviews the PRD in a fresh context | Opus, high | No |
-| `learnings-researcher` | Finds past lessons before planning and review | Opus, low | No |
-| `researcher` (optional) | Answers specific outside questions | Opus, medium | No |
-| `test-author` | Writes one or more `@AC-n` tests per criterion | Opus, high | Tests |
-| `test-reviewer` | Checks every criterion is covered and every assertion means something | Opus, high | No |
+| Orchestrator (`/factory2:run`, your session) | Routes work, runs scripts, stops at gates | Opus, medium | Only run state, through scripts |
+| `planner` | Writes `prd.md`, `contract.json` and `plan.md` | Opus, medium | Spec files |
+| `prd-reviewer` | Reviews the PRD in a fresh context | Opus, medium | No |
+| `learnings-researcher` | Finds past lessons before planning and review | Opus, high | No |
+| `researcher` (optional) | Answers specific outside questions | **Sonnet 5.5**, high | No |
+| `test-author` | Writes one or more `@AC-n` tests per criterion | Opus, medium | Tests |
+| `test-reviewer` | Checks every criterion is covered and every assertion means something | Opus, medium | No |
 | `implementer` | Writes the code, then the docs | Opus, **low** on the first pass; a **fresh** spawn at **high** for each retry | Product code |
-| `reviewer-correctness`, `reviewer-spec` | Blocking review lenses | Opus, high | No |
-| `reviewer-security` | Blocking lens | Opus, high (xhigh on risky diffs) | No |
+| `reviewer-correctness`, `reviewer-spec` | Blocking review lenses | Opus, medium | No |
+| `reviewer-security` | Blocking lens | **Fable 5.1**, high | No |
 | `reviewer-maintainability` | Advisory lens | Opus, medium | No |
-| `challenger` | Tries to refute each blocking finding | Opus, high | No |
-| `qa-evaluator` | Drives the running app, one pass or fail per criterion | Opus, high | No |
-| `triager` | Classifies your comments; diagnoses incident issues and posts the diagnosis on the issue | Opus, high | No |
+| `challenger` | Tries to refute each blocking finding | Opus, medium | No |
+| `qa-evaluator` | Drives the running app, one pass or fail per criterion | Opus, medium | No |
+| `triager` | Classifies your comments; diagnoses incident issues and posts the diagnosis on the issue | Opus, medium | No |
 
-You can override a model or effort per agent in `roles:` (see §5.5). Do it only after `/factory:stats`
+The default is **Opus 5.5 at medium effort**. The exceptions:
+
+- `learnings-researcher` runs at high.
+- `researcher` runs on Sonnet 5.5 at high.
+- `reviewer-security` runs on Fable 5.1 at high. Fable 5.1 isn't available under zero data retention
+  unless Anthropic authorises it. If the spawn fails for that reason, the orchestrator re-runs the
+  review once on Opus and tells you. Set `roles.reviewer-security: {model: opus, effort: high}` to make
+  that permanent.
+- `implementer` keeps its low-then-high policy.
+
+Every spawn takes its model and effort from the agent's own definition, or from your `roles:` override.
+
+You can override a model or effort per agent in `roles:` (see §5.5). Do it only after `/factory2:stats`
 shows the override holds up on your own runs.
 
 ---
@@ -76,19 +88,19 @@ shows the override holds up on your own runs.
 1. **Install the plugins.**
    ```sh
    claude plugin marketplace add EveryInc/compound-engineering-plugin
-   claude plugin marketplace add <factory marketplace: git URL or local path>
-   claude plugin install factory@factory      # installs compound-engineering too
+   claude plugin marketplace add <factory2 marketplace: git URL or local path>
+   claude plugin install factory2@factory2      # installs compound-engineering too
    ```
-2. **Open the project in Claude Code and run `/factory:init`.** It:
-   - runs `doctor.sh`: Claude Code ≥ 2.1.311, hooks not disabled, no other plugin named `factory`,
+2. **Open the project in Claude Code and run `/factory2:init`.** It:
+   - runs `doctor.sh`: Claude Code ≥ 2.1.311, hooks not disabled, no other plugin named `factory2`,
      `CLAUDE_CODE_EFFORT_LEVEL` unset, compound-engineering enabled, `git`, `jq` and `python3` present;
    - runs the compound-engineering contract test (about a minute; it checks that the version you have
-     still behaves the way factory's learning capture expects);
+     still behaves the way factory2's learning capture expects);
    - writes `.factory/config.yaml` from your build files and runs each check once to prove the commands
      exist;
    - for web projects, offers to install `@playwright/cli`;
    - adds `.factory/runs/` and `.factory/incidents/` to `.gitignore`.
-3. **Review `.factory/config.yaml`** (template: `plugins/factory/templates/factory.config.yaml`). The
+3. **Review `.factory/config.yaml`** (template: `plugins/factory2/templates/factory.config.yaml`). The
    parts that matter most:
    - `checks.fast`: run after every implementer turn. Keep them under about 7 minutes; the gate has a
      14-minute limit.
@@ -102,7 +114,7 @@ shows the override holds up on your own runs.
 4. **Commit** the config and `.gitignore` changes.
 
 > If `CLAUDE_CODE_EFFORT_LEVEL` is set in your shell, unset it and restart Claude Code. It overrides
-> every agent's effort, including the per-role levels factory sets, so `/factory:run` refuses to start
+> every agent's effort, including the per-role levels factory2 sets, so `/factory2:run` refuses to start
 > until you either unset it or explicitly accept running every agent at that one level.
 
 ---
@@ -112,8 +124,8 @@ shows the override holds up on your own runs.
 Start a run:
 
 ```
-/factory:run "Add a dark-mode toggle to the settings page"
-/factory:run --issue 123          # a bugfix run from a GitHub issue (number or URL), or a local incident file
+/factory2:run "Add a dark-mode toggle to the settings page"
+/factory2:run --issue 123          # a bugfix run from a GitHub issue (number or URL), or a local incident file
 ```
 
 The orchestrator proposes a short slug (for example `dark-mode-toggle`) and asks you to confirm it. From
@@ -157,7 +169,7 @@ each run gets its own branch and dev-server port.
    - **Approve**: the approval is recorded against the current commit, and the run moves to stage 4.
    - **Request changes**: type your comments. They're saved word for word to
      `docs/specs/<slug>/feedback/prd-<n>.md` and go to stage 3.
-   - **Stop**: the run pauses. Resume it later with `/factory:run <slug>`.
+   - **Stop**: the run pauses. Resume it later with `/factory2:run <slug>`.
 3. If you approve while the reviewer still has blocking findings, you're asked once more, and the
    override is recorded in history.
 
@@ -258,9 +270,9 @@ See §4.2.
 
 | You want to | Do |
 |---|---|
-| Continue a paused run | `/factory:run <slug>` (a new session also tells you which run is active) |
-| Fix an issue (an incident or any bug report) | `/factory:run --issue <ref>`. Use `claude --worktree` while another run holds the checkout (for example one still being monitored). |
-| Restart from a stage | `/factory:run <slug> --from <n>`. Going back cancels approvals given at that stage or later. |
+| Continue a paused run | `/factory2:run <slug>` (a new session also tells you which run is active) |
+| Fix an issue (an incident or any bug report) | `/factory2:run --issue <ref>`. Use `claude --worktree` while another run holds the checkout (for example one still being monitored). |
+| Restart from a stage | `/factory2:run <slug> --from <n>`. Going back cancels approvals given at that stage or later. |
 | Abandon a run | Stop at any gate, run `bash <plugin>/scripts/state.sh end` to release the checkout, then delete `.factory/runs/<slug>/` and the branch if you don't need them. The committed spec and history stay. |
 
 ---
@@ -271,7 +283,7 @@ See §4.2.
 
 | Question | Where to look |
 |---|---|
-| Where is the run? | `/factory:status`: stage, phase, rounds against limits, approvals with commit SHAs, PR, whether frozen, the criteria table, spend against budget, open incidents |
+| Where is the run? | `/factory2:status`: stage, phase, rounds against limits, approvals with commit SHAs, PR, whether frozen, the criteria table, spend against budget, open incidents |
 | What will it cost? | `bash <plugin>/scripts/state.sh spend`: spend by stage and by agent, priced from transcripts |
 | Is anything stuck? | The live session: each stage starts with `state.sh stage <n>` and each sub-phase ends with a `factory(<slug>): …` commit (`git log --oneline factory/<slug>`) |
 | Did the stop gate actually check the implementer? | `.factory/runs/<slug>/stop-gate.log` and `gate-errors.log`, plus `gate_timeouts` and `gate_errors` in `state.json`. The orchestrator also mentions them in the stage summary. |
@@ -300,7 +312,7 @@ Choose a scheduler with `monitor.scheduler`:
 
 | Scheduler | How | Good for | Limits |
 |---|---|---|---|
-| `local-loop` | `/loop 15m /factory:monitor <slug>` | The hours right after a deploy | Runs only while the session is idle; expires after 7 days; doesn't catch up on missed runs |
+| `local-loop` | `/loop 15m /factory2:monitor <slug>` | The hours right after a deploy | Runs only while the session is idle; expires after 7 days; doesn't catch up on missed runs |
 | `launchd` | Runs `.factory/bin/monitor.sh` and shows a macOS notification | A dev machine that stays on | No triage until your next session |
 | `github-actions` | Cron workflow, which opens a `factory-incident` issue | Always on | Detects and files only; no Claude in CI, so no Anthropic credential is needed |
 
@@ -308,12 +320,12 @@ Choose a scheduler with `monitor.scheduler`:
 
 1. **The issue already exists.** `monitor.sh` filed it the moment the check failed, even when no Claude
    session was running (launchd, GitHub Actions).
-2. **Triage.** `/factory:monitor`, or the next `/factory:run` or `/factory:status`, picks it up.
+2. **Triage.** `/factory2:monitor`, or the next `/factory2:run` or `/factory2:status`, picks it up.
    `triager` correlates it with the deploy commit and the diff, and **posts its diagnosis on the issue**:
    how likely the deploy caused it, a proposed reproduction written as a regression criterion, and
    whether to roll back.
 3. **Mitigate (optional).** A rollback needs your explicit yes and is commented on the issue.
-4. **Fix through the normal flow.** You start `/factory:run --issue <ref>` (in `claude --worktree` while
+4. **Fix through the normal flow.** You start `/factory2:run --issue <ref>` (in `claude --worktree` while
    the original run is still being monitored). It's a full run: bugfix PRD and your PRD approval, a
    failing regression test first, review, evidence and your approval, then deploy. Merging closes the
    issue.
@@ -323,7 +335,7 @@ Choose a scheduler with `monitor.scheduler`:
 The original run is never reopened. It stays at stage 8 until `monitor.window_hours` (24 by default)
 pass, then ends; incidents don't extend the window.
 
-`/factory:status` lists open incident issues and the bugfix run handling each one, or says that none has
+`/factory2:status` lists open incident issues and the bugfix run handling each one, or says that none has
 started yet.
 
 ---
@@ -350,12 +362,12 @@ stage 6.
 
 | Guard | Stops | How |
 |---|---|---|
-| Freeze | The implementer weakening a test, a test config, `package.json` scripts, lint rules, CI or the factory config | Hooks block Edit and Write on frozen files. Hashes are re-checked when the implementer stops and after each pass, which also catches changes made through the shell. |
+| Freeze | The implementer weakening a test, a test config, `package.json` scripts, lint rules, CI or the factory2 config | Hooks block Edit and Write on frozen files. Hashes are re-checked when the implementer stops and after each pass, which also catches changes made through the shell. |
 | Read-only roles | Reviewers, QA, challenger and triager changing files | A hook blocks their edits. The working tree is hashed before and after each read-only batch; a change is stashed and logged as an incident. |
 | Spec and state protection | Agents editing the PRD, the run state, the history or Claude Code's settings during a run | Hook |
 | Agent memory | Agents writing their own memory | Hook. Only the harness writes it, at stage 7. |
 | Bash guard | Force-push or deleting a protected branch, skipping git hooks (`--no-verify`, `HUSKY=0`), `rm -rf` of `/` or home, `pkill`/`killall`, and deploy or rollback outside an approved stage 7 | Hook, always on (not only during a run); sees through quoting, `bash -c`, `eval`, `command`, `exec` and `xargs` |
-| Fail closed | A guard crashing or hanging and letting the action through | `gate.sh` turns a crash or timeout into a block inside factory projects |
+| Fail closed | A guard crashing or hanging and letting the action through | `gate.sh` turns a crash or timeout into a block inside factory2 projects |
 | Fresh retries | A retry inheriting the failed attempt's wrong assumptions | Each retry is a new agent, briefed with the failure report |
 
 These guards are a seatbelt, not a security boundary. A determined shell command could still rewrite
@@ -384,7 +396,7 @@ The commits are labelled by sub-phase, so the PR reads in order:
 | `limits.evidence_rounds` | 3 | Asks you |
 | `limits.budget_usd` | 60 | Pauses at the next gate |
 
-Each escalation is recorded in history, so `/factory:stats` can show where runs get stuck.
+Each escalation is recorded in history, so `/factory2:stats` can show where runs get stuck.
 
 ### 5.5 Knobs
 
@@ -407,7 +419,7 @@ The config is frozen during a run. Edits take effect on the next run.
 | Layer | What it holds | Written by | Read by | Where |
 |---|---|---|---|---|
 | **Project knowledge** | One document per lesson that generalises: symptom, wrong first guess, root cause, fix, what to check next time | compound-engineering's `ce-compound`, called by the orchestrator | `learnings-researcher` before planning and before review | `docs/solutions/` (committed) |
-| **Per-agent calibration** | Short "check this next time" lines for the agent that missed something | Only the harness: lines are recorded during the run and folded in at stage 7 | Each factory agent, loaded at spawn by a hook (first 200 lines or 25 KB) | `.claude/agent-memory/factory-<agent>/MEMORY.md` (committed) |
+| **Per-agent calibration** | Short "check this next time" lines for the agent that missed something | Only the harness: lines are recorded during the run and folded in at stage 7 | Each factory2 agent, loaded at spawn by a hook (first 200 lines or 25 KB) | `.claude/agent-memory/factory-<agent>/MEMORY.md` (committed) |
 | **Your corrections** | Claude Code's built-in auto memory | Claude Code | Your sessions | Claude Code's memory (optional) |
 
 ### 6.2 How a lesson travels
@@ -461,7 +473,7 @@ only: one becomes a calibration line when a stage outcome confirms it, never dir
 - **Remove or rewrite a line:** edit `MEMORY.md` in a normal commit, outside a run. Agents can't, but you
   can.
 - **Size:** each `MEMORY.md` is capped at `learning.memory_max_lines` (150). The oldest lines move to
-  `archive.md` in the same folder, which isn't loaded. `/factory:stats` *(M7)* lists agents near the cap
+  `archive.md` in the same folder, which isn't loaded. `/factory2:stats` *(M7)* lists agents near the cap
   so you can consolidate them.
 - **Project knowledge:** `docs/solutions/` is ordinary markdown. compound-engineering's
   `ce-compound-refresh` consolidates it when ce-compound recommends a refresh, or every
@@ -482,7 +494,7 @@ Each run's committed history file records:
 - ce-compound outcomes and the compound-engineering version
 - calibration lines
 
-`/factory:stats` reads all of them. Use it to:
+`/factory2:stats` reads all of them. Use it to:
 
 - **See whether learning helps.** Human-found issues per run should fall for the classes that have
   lessons.
@@ -507,13 +519,13 @@ agent prompt changes. The seed case, a PRD with no empty-state criterion, scored
 
 | Command | Use |
 |---|---|
-| `/factory:init` | Once per project, and again after upgrading factory or compound-engineering |
-| `/factory:run "<feature>"` | Start a run |
-| `/factory:run --issue <ref>` | Start a bugfix run from an issue |
-| `/factory:run <slug> [--from <n>]` | Resume, or restart from a stage |
-| `/factory:status [slug]` | One-screen state of a run; read-only |
-| `/factory:monitor <slug>` | One round of production checks *(M6)*; pair with `/loop` |
-| `/factory:stats [--since <date>] [--export-evals]` | Measurements across runs *(M7)* |
+| `/factory2:init` | Once per project, and again after upgrading factory2 or compound-engineering |
+| `/factory2:run "<feature>"` | Start a run |
+| `/factory2:run --issue <ref>` | Start a bugfix run from an issue |
+| `/factory2:run <slug> [--from <n>]` | Resume, or restart from a stage |
+| `/factory2:status [slug]` | One-screen state of a run; read-only |
+| `/factory2:monitor <slug>` | One round of production checks *(M6)*; pair with `/loop` |
+| `/factory2:stats [--since <date>] [--export-evals]` | Measurements across runs *(M7)* |
 
 ### Files in your project
 
@@ -541,7 +553,7 @@ docs/solutions/              committed   project knowledge (compound-engineering
 | "Blocked by factory: … is a frozen test" | Intended. If the test really is wrong, the implementer says so and the orchestrator sends it back through test-author. |
 | "Blocked by factory: … defines the project's checks" | Intended. A real need goes through a plan Exception and a re-freeze (§3, stage 4). |
 | `freeze` refuses: a check file differs from the base | It was changed on the branch before the freeze. Revert it, or add a plan Exception the PRD review covers. |
-| A hook blocks everything with "jq is missing" | Install `jq` and `python3`. Inside a factory project the guards fail closed. |
+| A hook blocks everything with "jq is missing" | Install `jq` and `python3`. Inside a factory2 project the guards fail closed. |
 | The stop gate timed out | The fast checks take too long (more than about 14 minutes). Move slow ones to `checks.slow`. `state.sh baseline` warns when the fast set takes over 7 minutes. |
-| "compound-engineering … hasn't passed factory's contract test" | Run `/factory:init`, or let `/factory:run` run the test. Learning capture is off until it passes. |
-| An edit is blocked though no run should be active | The file guards act only while a run is active in that checkout. Check `/factory:status`, and end a finished run with `state.sh end`. (The Bash guard is always on, by design.) |
+| "compound-engineering … hasn't passed factory2's contract test" | Run `/factory2:init`, or let `/factory2:run` run the test. Learning capture is off until it passes. |
+| An edit is blocked though no run should be active | The file guards act only while a run is active in that checkout. Check `/factory2:status`, and end a finished run with `state.sh end`. (The Bash guard is always on, by design.) |

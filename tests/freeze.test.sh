@@ -28,14 +28,14 @@ edit() { # <agent_type or ""> <path>
 }
 
 # --- before any run
-edit factory:implementer "$R/tests/a.test.ts";            t_code 0 "no active run: edits pass"
+edit factory2:implementer "$R/tests/a.test.ts";            t_code 0 "no active run: edits pass"
 
 bash "$S/state.sh" start demo >/dev/null
-edit factory:implementer "$R/.claude/agent-memory/factory-implementer/MEMORY.md"; t_code 2 "agent memory is harness-only"
+edit factory2:implementer "$R/.claude/agent-memory/factory-implementer/MEMORY.md"; t_code 2 "agent memory is harness-only"
 edit "" "$R/.claude/agent-memory/factory-planner/MEMORY.md";                      t_code 2 "agent memory blocked for the main session too"
-edit factory:reviewer-correctness "$R/src/a.ts";         t_code 2 "read-only role can't edit"
-edit factory:implementer "$R/src/a.ts";                  t_code 0 "implementer edits product code"
-edit factory:implementer "$R/tests/a.test.ts";           t_code 0 "nothing frozen yet"
+edit factory2:reviewer-correctness "$R/src/a.ts";         t_code 2 "read-only role can't edit"
+edit factory2:implementer "$R/src/a.ts";                  t_code 0 "implementer edits product code"
+edit factory2:implementer "$R/tests/a.test.ts";           t_code 0 "nothing frozen yet"
 
 run bash "$S/state.sh" freeze
 t_code 0 "freeze succeeds"
@@ -48,15 +48,15 @@ t_eq "$(jq -r '.fast.unit' "$R/.factory/runs/demo/checks.snapshot.json")" 'test 
 t_eq "$(grep -c 'docs/specs/' "$R/.factory/runs/demo/frozen.tsv")" "0" "factory's own spec files are never frozen"
 
 bash "$S/state.sh" phase code >/dev/null
-edit factory:implementer "$R/tests/a.test.ts";           t_code 2 "implementer can't edit a frozen test"
+edit factory2:implementer "$R/tests/a.test.ts";           t_code 2 "implementer can't edit a frozen test"
 t_has "$ERR" "frozen test" "frozen-test message"
-edit factory:implementer "$R/tests/fixtures/user.json";  t_code 2 "implementer can't edit a frozen fixture"
-edit factory:implementer "$R/package.json";              t_code 2 "implementer can't edit package.json"
-edit factory:implementer "$R/.factory/config.yaml";      t_code 2 "implementer can't edit the config"
-edit factory:test-author "$R/tests/a.test.ts";           t_code 2 "test-author can't edit frozen tests outside the tests phase"
+edit factory2:implementer "$R/tests/fixtures/user.json";  t_code 2 "implementer can't edit a frozen fixture"
+edit factory2:implementer "$R/package.json";              t_code 2 "implementer can't edit package.json"
+edit factory2:implementer "$R/.factory/config.yaml";      t_code 2 "implementer can't edit the config"
+edit factory2:test-author "$R/tests/a.test.ts";           t_code 2 "test-author can't edit frozen tests outside the tests phase"
 bash "$S/state.sh" phase tests >/dev/null
-edit factory:test-author "$R/tests/a.test.ts";           t_code 0 "test-author edits frozen tests in the tests phase"
-edit factory:test-author "$R/package.json";              t_code 2 "test-author still can't edit check-defining files"
+edit factory2:test-author "$R/tests/a.test.ts";           t_code 0 "test-author edits frozen tests in the tests phase"
+edit factory2:test-author "$R/package.json";              t_code 2 "test-author still can't edit check-defining files"
 bash "$S/state.sh" phase code >/dev/null
 
 run bash "$S/state.sh" verify-freeze;                    t_code 0 "fresh freeze verifies"
@@ -115,29 +115,29 @@ bash "$S/state.sh" freeze >/dev/null
 
 # --- SubagentStop
 stop() { hook "$S/subagent-stop.sh" "$(jq -n --arg a "$1" --arg id "$2" '{hook_event_name: "SubagentStop", agent_type: $a, agent_id: $id}')"; }
-stop factory:reviewer-spec a1;                           t_code 0 "other agents pass"
+stop factory2:reviewer-spec a1;                           t_code 0 "other agents pass"
 stop "" a1;                                              t_code 0 "empty agent_type passes"
-stop factory:implementer i1;                             t_code 2 "failing fast check blocks"
+stop factory2:implementer i1;                             t_code 2 "failing fast check blocks"
 t_has "$ERR" "block 1 of 2" "counts blocks"
 t_has "$ERR" "FAIL unit" "includes the failing output"
-stop factory:implementer i1;                             t_code 2 "blocks again"
-stop factory:implementer i1;                             t_code 0 "lets go after stop_retries"
+stop factory2:implementer i1;                             t_code 2 "blocks again"
+stop factory2:implementer i1;                             t_code 0 "lets go after stop_retries"
 touch "$R/src/ok"
-stop factory:implementer i2;                             t_code 0 "passing checks let the implementer stop"
+stop factory2:implementer i2;                             t_code 0 "passing checks let the implementer stop"
 jq '.scripts.test = "true"' "$R/package.json" > "$R/p.tmp" && mv "$R/p.tmp" "$R/package.json"
-stop factory:implementer i3;                             t_code 2 "a frozen-file change blocks before the checks run"
+stop factory2:implementer i3;                             t_code 2 "a frozen-file change blocks before the checks run"
 t_has "$ERR" "Frozen files changed" "freeze message"
 t_has "$ERR" "package.json" "names the file"
 git -C "$R" checkout -q -- package.json
 rm "$R/src/ok"
 printf 'unit\n' > "$R/.factory/runs/demo/baseline-failures"
-stop factory:implementer i4;                             t_code 0 "a check already failing at the baseline doesn't block"
+stop factory2:implementer i4;                             t_code 0 "a check already failing at the baseline doesn't block"
 # the gate's own time limit: a hung check is killed and the stop let through (and recorded), because
 # Claude Code would cancel the hook at its timeout and let the agent stop unchecked anyway
 snap="$R/.factory/runs/demo/checks.snapshot.json"; cp "$snap" "$snap.bak"
 jq '.fast = {hang: "sleep 30; echo still-here > hung.txt"}' "$snap.bak" > "$snap"
 t0="$(date +%s)"
-FACTORY_GATE_BUDGET=2 stop factory:implementer i5;       t_code 0 "a check over the gate's time limit lets the stop through"
+FACTORY_GATE_BUDGET=2 stop factory2:implementer i5;       t_code 0 "a check over the gate's time limit lets the stop through"
 [ $(( $(date +%s) - t0 )) -lt 12 ] && t_ok || t_fail "the gate didn't stop at its time limit"
 t_has "$ERR" "longer than 2s" "says the checks timed out"
 t_has "$(cat "$R/.factory/runs/demo/stop-gate.log")" "timeout after 2s" "the timeout is in stop-gate.log"

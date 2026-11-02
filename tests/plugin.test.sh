@@ -14,7 +14,14 @@ for f in "$A"/*.md; do
   a="$(basename "$f" .md)"
   t_eq "$(field "$f" name)" "$a" "$a: name matches the file"
   t_eq "$(field "$f" disallowedTools)" "Skill" "$a: disallowedTools Skill"
-  t_eq "$(field "$f" model)" "opus" "$a: model opus"
+  case "$a" in   # the user's per-agent choice (docs/PRD.md, "plugin name and per-agent models")
+    learnings-researcher) want="opus high" ;;
+    researcher)           want="sonnet high" ;;
+    reviewer-security)    want="fable high" ;;
+    implementer)          want="opus low" ;;
+    *)                    want="opus medium" ;;
+  esac
+  t_eq "$(field "$f" model) $(field "$f" effort)" "$want" "$a: model and effort"
   # memory is loaded by the SubagentStart hook (memory-inject.sh), never by the frontmatter: `memory:`
   # does nothing with auto memory off, and it gives every agent Write and Edit
   t_eq "$(field "$f" memory)" "" "$a: no memory frontmatter"
@@ -23,7 +30,7 @@ for f in "$A"/*.md; do
     *) t_has "$(tr -s "\n " "  " < "$f")" "reference material, not rules" "$a: prompt treats memory as reference, not rules" ;;
   esac
   for s in $(fm "$f" | awk '/^skills:/{f=1; next} f && /^  - /{print $2; next} f{exit}'); do
-    [ "$s" = "playwright-cli" ] && continue   # installed into the project by /factory:init
+    [ "$s" = "playwright-cli" ] && continue   # installed into the project by /factory2:init
     if [ -f "$K/$s/SKILL.md" ]; then t_ok; else t_fail "$a preloads missing skill $s"; fi
     t_eq "$(field "$K/$s/SKILL.md" user-invocable)" "false" "$s: preloaded skill is user-invocable: false"
     t_hasnt "$(fm "$K/$s/SKILL.md")" "disable-model-invocation: true" "$s: preloadable"
@@ -31,7 +38,7 @@ for f in "$A"/*.md; do
 done
 t_eq "$(ls "$A" | wc -l | tr -d ' ')" "14" "14 agents"
 t_has "$(grep -o 'learnings-researcher|challenger|researcher' "$S/memory-inject.sh")" "learnings-researcher|challenger|researcher" "memory-inject skips the agents without memory"
-t_eq "$(jq -r '.hooks.SubagentStart[0].matcher' "$PLUGIN/hooks/hooks.json")" "^factory:" "SubagentStart hook loads memory for factory agents"
+t_eq "$(jq -r '.hooks.SubagentStart[0].matcher' "$PLUGIN/hooks/hooks.json")" "^factory2:" "SubagentStart hook loads memory for factory agents"
 for s in run init status stats monitor; do
   t_eq "$(field "$K/$s/SKILL.md" name)" "$s" "skill $s exists"
 done
@@ -58,4 +65,6 @@ if [ "${FACTORY_TEST_ONLINE:-0}" = "1" ] && command -v gh >/dev/null; then
   elif [ "$up" != "$body_sha" ]; then echo "  DRIFT learnings-researcher: upstream main is blob $up (pinned ab60b70); review and re-port"
   else echo "  learnings-researcher: upstream main matches the pin"; fi
 fi
+t_eq "$(fm "$PLUGIN/skills/run/SKILL.md" | sed -n 's/^effort: *//p')" "medium" "orchestrator runs at medium"
+t_eq "$(jq -r .name "$PLUGIN/.claude-plugin/plugin.json")" "factory2" "plugin is named factory2"
 t_done
