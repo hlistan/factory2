@@ -42,7 +42,9 @@
 6. If the implementer reports that a frozen test is wrong or a dependency is missing: don't let it
    proceed. Route a wrong test: `state.sh phase tests` → test-author → test-reviewer → commit →
    `state.sh freeze` → `state.sh phase code`. Route a missing dependency or a needed check-file change:
-   planner adds it to plan.md's `## Exceptions` (committed) → `state.sh freeze` (records the reviewed
+   planner adds it to plan.md's `## Exceptions` (committed) → `state.sh freeze` before anything else
+   changes (it prints `Exceptions recorded since the last freeze: …`; check that list is exactly what
+   the planner reported, and tell the user otherwise) (records the reviewed
    Exceptions; hooks and verify-freeze use only that copy, so an Exception an agent writes into plan.md
    later counts for nothing) → the next implementer makes exactly that change (test-guard allows
    Edit/Write to a check-defining file the Exceptions name; dependencies are installed with the package

@@ -571,3 +571,11 @@ regression tests in `tests/regressions.test.sh` and the per-script suites. The b
   (commas allowed; partial names only when unambiguous). `run-checks --json` handles multi-line
   commands. Negative budget means no limit. xargs option arity fixed. memory-inject's text no longer
   contains a command substitution.
+- **Third review pass (6 more).** Re-freeze judges changes by the frozen Exceptions, not the live
+  plan.md, and prints the Exceptions added since the last freeze for the orchestrator to check against
+  the planner's report. The snapshot's sha256 is in state.json (`frozen_plan_sha`): a missing or
+  rewritten `plan.frozen.md` makes verify-freeze and re-freeze exit 2 (the stop gate blocks). `state.sh
+  branch` records the base only when it creates the branch. `red-check` rejects unknown flags and
+  reports ambiguous partial names. guard-bash skips xargs long options that take a separate value.
+  Residual, by design: a Bash edit that rewrites both run state and the snapshot isn't caught by
+  hooks; hooks are seatbelts, and the PR diff and the human gates remain the boundary.

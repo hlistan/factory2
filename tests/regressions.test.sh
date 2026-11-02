@@ -70,7 +70,20 @@ printf -- '- `vitest.config.ts`\n' >> "$R/docs/specs/tg/plan.md"
 edit $I "$R/vitest.config.ts";                             t_code 2 "an Exception added after the freeze doesn't unlock the file"
 printf 'export default {weak: 1}\n' > "$R/vitest.config.ts"
 run bash "$S/state.sh" verify-freeze;                      t_code 1 "and verify-freeze reads the frozen plan, not the live one"
-git -C "$R" checkout -q -- vitest.config.ts docs/specs/tg/plan.md
+# re-freeze judges changes by the frozen Exceptions too, and the snapshot is hash-checked
+printf -- '- `vitest.config.ts`\n' >> "$R/docs/specs/tg/plan.md"
+run bash "$S/state.sh" freeze;                             t_code 1 "re-freeze doesn't accept a change the live plan self-grants"
+git -C "$R" checkout -q -- vitest.config.ts
+cp "$R/.factory/runs/tg/plan.frozen.md" "$T_TMP/pf.bak"; rm "$R/.factory/runs/tg/plan.frozen.md"
+run bash "$S/state.sh" verify-freeze;                      t_code 2 "a deleted snapshot is an error, not a fallback to the live plan"
+printf -- '- `vitest.config.ts`\n' > "$R/.factory/runs/tg/plan.frozen.md"
+run bash "$S/state.sh" verify-freeze;                      t_code 2 "a rewritten snapshot is an error"
+run bash "$S/state.sh" freeze;                             t_code 2 "and re-freeze refuses it too"
+cp "$T_TMP/pf.bak" "$R/.factory/runs/tg/plan.frozen.md"
+run bash "$S/state.sh" freeze;                             t_code 0 "the documented flow: a new Exception with nothing changed yet re-freezes"
+t_has "$OUT" "Exceptions recorded since the last freeze: vitest.config.ts" "and names the new Exception for the orchestrator"
+git -C "$R" checkout -q -- docs/specs/tg/plan.md
+bash "$S/state.sh" freeze >/dev/null
 edit $I "$R/.factory/runs/tg/state.json";                  t_code 2 "agents can't write run state"
 edit factory:planner "$R/.factory/history/tg.json";        t_code 2 "or history"
 
@@ -145,11 +158,15 @@ t_has "$ERR" "eslint.config.js" "names it"
 printf '# Plan\n\n## Exceptions\n- `eslint.config.js`\n' > "$R/docs/specs/fb/plan.md"
 run bash "$S/state.sh" freeze;                             t_code 0 "accepted once the plan's Exceptions name it"
 # a path token doesn't unlock lockfiles; a dependency name does
-printf '{"lockfileVersion": 3, "x": 1}\n' > "$R/package-lock.json"
 printf '# Plan\n\n## Exceptions\n- `eslint.config.js`\n- `src.txt`\n' > "$R/docs/specs/fb/plan.md"
-run bash "$S/state.sh" freeze;                             t_code 1 "a lockfile change with only path tokens in Exceptions"
+run bash "$S/state.sh" freeze;                             t_code 0 "re-freeze with a path-only Exception"
+printf '{"lockfileVersion": 3, "x": 1}\n' > "$R/package-lock.json"
+run bash "$S/state.sh" verify-freeze;                      t_code 1 "a lockfile change with only path tokens in Exceptions"
+git -C "$R" checkout -q -- package-lock.json
 printf '# Plan\n\n## Exceptions\n- `eslint.config.js`\n- `left-pad`\n' > "$R/docs/specs/fb/plan.md"
-run bash "$S/state.sh" freeze;                             t_code 0 "allowed when a dependency is named"
+run bash "$S/state.sh" freeze;                             t_code 0 "re-freeze with a dependency Exception"
+printf '{"lockfileVersion": 3, "x": 1}\n' > "$R/package-lock.json"
+run bash "$S/state.sh" verify-freeze;                      t_code 0 "allowed when a dependency is named"
 
 # ------------------------------------------------ red-check --tests (stage 5 fix loop)
 mkdir -p "$R/.factory/runs/fb/reports/unit"
@@ -165,6 +182,8 @@ printf '%s\n' '<testsuite><testcase classname="s" name="returns 400, not 500"><f
   > "$R/.factory/runs/fb/reports/unit/junit.xml"
 run bash "$S/state.sh" red-check --test "returns 400, not 500";       t_code 0 "a name with a comma is one name"
 run bash "$S/state.sh" red-check --test "returns 400";                t_code 1 "an ambiguous partial name matches nothing"
+t_has "$OUT" "AMBIGUOUS" "and says it is ambiguous"
+run bash "$S/state.sh" red-check --tests "x";                         t_code 2 "an unknown flag is a usage error, not the stage 4 check"
 
 # ------------------------------------------------ first freeze in a project below the git top level
 M="$(new_repo)"
@@ -195,6 +214,11 @@ t_eq "$(git -C "$B" branch --show-current)" "factory/br" "and switches to it"
 t_eq "$(jq -r .base "$B/.factory/runs/br/state.json")" "$(git -C "$B" rev-parse main)" "base is where the branch starts, not where start ran"
 printf 'dirty\n' >> "$B/new.txt"
 FACTORY_ROOT="$B" run bash "$S/state.sh" branch;          t_code 1 "refuses with uncommitted changes"
+git -C "$B" checkout -q -- new.txt
+first="$(jq -r .base "$B/.factory/runs/br/state.json")"
+printf 'y\n' > "$B/more.txt" && git -C "$B" add -A && git -C "$B" commit -q -m "on the branch"
+FACTORY_ROOT="$B" run bash "$S/state.sh" branch;          t_code 0 "branch again (resume)"
+t_eq "$(jq -r .base "$B/.factory/runs/br/state.json")" "$first" "the base doesn't move on resume"
 
 # ------------------------------------------------ the state lock: a dead owner's lock is stolen
 f="$R/.factory/runs/fb/state.json"

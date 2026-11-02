@@ -181,7 +181,7 @@ function check(w, nw, depth,   i, t, prog, j, s, husky) {
     if (t ~ /^(\{|\}|!|if|then|else|elif|do|while|until|time|nohup|builtin|stdbuf|caffeinate)$/) { i++; continue }
     if (t == "command") { i++; while (i < nw && w[i] ~ /^-[pV]+$/) i++; continue }
     if (t == "exec") { i++; while (i < nw && w[i] ~ /^-/) { if (w[i] == "-a") i++; i++ } continue }
-    if (t == "xargs") { i++; while (i < nw && w[i] ~ /^-/) { if (w[i] ~ /^-[ILnPsEdaRJS]$/) i++; i++ } continue }
+    if (t == "xargs") { i++; while (i < nw && w[i] ~ /^-/) { if (w[i] ~ /^-[ILnPsEdaRJS]$/ || w[i] ~ /^--(max-args|max-chars|max-procs|arg-file|delimiter|process-slot-var)$/) i++; i++ } continue }
     if (t ~ /^[A-Za-z_][A-Za-z0-9_]*=/) { if (t ~ /^HUSKY=0$/ || t ~ /^HUSKY_SKIP_HOOKS=(1|true)$/) husky = 1; i++; continue }
     if (t == "sudo" || t == "doas") { i++; while (i < nw && w[i] ~ /^-/) { if (w[i] ~ /^-[ugCDhpRrTt]$/) i++; i++ } continue }
     if (t == "env") {

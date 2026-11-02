@@ -344,7 +344,10 @@ def main(argv):
             return 1 if problems else 0
         # freeze
         if read_frozen(a.run) is not None:
-            problems = verify(root, a.run, cfg, a.plan, ("checks",))
+            # changes since the last freeze are judged by the Exceptions reviewed at that freeze, never by
+            # the live plan.md (an agent could have added an Exception for its own change)
+            frozen_plan = os.path.join(a.run, "plan.frozen.md")
+            problems = verify(root, a.run, cfg, frozen_plan if os.path.isfile(frozen_plan) else a.plan, ("checks",))
             if problems:
                 print("freeze: the check-defining files changed since the last freeze; resolve this before re-freezing:", file=sys.stderr)
                 for p, why in problems:
@@ -359,6 +362,10 @@ def main(argv):
                     print(f"{p}: {why}", file=sys.stderr)
                 return 1
         os.makedirs(a.run, exist_ok=True)
+        old_exc = plan_exceptions(os.path.join(a.run, "plan.frozen.md"))
+        added = sorted(plan_exceptions(a.plan) - old_exc)
+        if added:  # the orchestrator confirms these came from the planner, through review
+            print("freeze: Exceptions recorded since the last freeze: " + ", ".join(added))
         rows, deps = [], {}
         for lst, kind, p in lists_for(root, cfg)[0]:
             rows.append(f"{lst}\t{kind}\t{file_hash(root, p, kind)}\t{p}\n")

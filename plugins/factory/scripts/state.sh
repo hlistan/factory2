@@ -47,6 +47,10 @@ effort_env_gate() { # [--effort-env-ok]: refuse to start or resume while CLAUDE_
   exit 3
 }
 
+sha256_of() { # <file>: hex sha256, or nothing when the file is missing
+  [ -f "$1" ] && factory_py -c 'import hashlib,sys; print(hashlib.sha256(open(sys.argv[1],"rb").read()).hexdigest())' "$1"
+}
+
 slug_ok() { printf '%s' "$1" | grep -E -q '^[a-z0-9][a-z0-9._-]{0,63}$'; }
 need_active() { slug="$(factory_active_slug)"; [ -n "$slug" ] || { echo "factory: no active run in this checkout (state.sh start <slug>)" >&2; exit 1; }; run="$runs/$slug"; }
 spec_dir() { printf '%s/docs/specs/%s' "$root" "$1"; }
@@ -146,11 +150,11 @@ case "$cmd" in
     [ -z "$(git -C "$root" status --porcelain --untracked-files=no)" ] || { echo "factory: the working tree has uncommitted changes; commit or stash them first" >&2; exit 1; }
     b="factory/$slug"
     if git -C "$root" rev-parse --verify -q "refs/heads/$b" >/dev/null; then
+      # resuming: the base stays where the branch was created, so commits made on the branch before
+      # the first freeze are still compared with it
       git -C "$root" switch -q "$b" || exit 1
     else
       git -C "$root" switch -q -c "$b" || exit 1
-    fi
-    if [ "$(jq -r '.frozen // false' "$run/state.json")" != "true" ]; then
       state_update '.base = $b | .branch = $br' --arg b "$(git -C "$root" rev-parse HEAD)" --arg br "$b"
     fi
     echo "factory: on $b (base $(state_get .base | cut -c1-12))"
@@ -211,13 +215,26 @@ case "$cmd" in
   freeze)
     need_active; cj="$(config_json_file)"
     base="$(jq -r '.base // empty' "$run/state.json")"
+    want="$(jq -r '.frozen_plan_sha // empty' "$run/state.json")"
+    if [ -n "$want" ] && [ "$(sha256_of "$run/plan.frozen.md")" != "$want" ]; then
+      echo "factory: $run/plan.frozen.md is missing or was changed after the last freeze; not re-freezing. Tell the user." >&2; exit 2
+    fi
     factory_py "$FACTORY_LIB/freeze.py" freeze --root "$root" --config "$cj" --run "$run" --plan "$(spec_dir "$slug")/plan.md" ${base:+--base "$base"} || exit $?
-    state_update '.frozen = true | .frozen_at = $at | .frozen_sha = $sha' --arg at "$(now_utc)" --arg sha "$(git -C "$root" rev-parse HEAD 2>/dev/null)"
+    # the snapshot's hash, so a deleted or rewritten plan.frozen.md is caught by verify-freeze
+    state_update '.frozen = true | .frozen_at = $at | .frozen_sha = $sha | .frozen_plan_sha = $p' --arg at "$(now_utc)" \
+      --arg sha "$(git -C "$root" rev-parse HEAD 2>/dev/null)" --arg p "$(sha256_of "$run/plan.frozen.md")"
     ;;
   verify-freeze)
     need_active; cj="$(config_json_file)"
-    # the plan as it was at the last freeze (orchestrator-reviewed), never the live file
-    plan="$run/plan.frozen.md"; [ -f "$plan" ] || plan="$(spec_dir "$slug")/plan.md"
+    # the plan as it was at the last freeze (orchestrator-reviewed), never the live file. Its hash is in
+    # state.json: a missing or changed snapshot is an error (exit 2, which the stop gate blocks on).
+    plan="$run/plan.frozen.md"
+    want="$(jq -r '.frozen_plan_sha // empty' "$run/state.json")"
+    if [ -n "$want" ]; then
+      [ "$(sha256_of "$plan")" = "$want" ] || { echo "factory: $plan is missing or was changed after the freeze" >&2; exit 2; }
+    else
+      [ -f "$plan" ] || plan="$(spec_dir "$slug")/plan.md"   # a run frozen before snapshots existed
+    fi
     factory_py "$FACTORY_LIB/freeze.py" verify --root "$root" --config "$cj" --run "$run" --plan "$plan" "$@"
     ;;
   contract-sync)
@@ -228,6 +245,7 @@ case "$cmd" in
   red-check)
     need_active
     factory_py "$FACTORY_LIB/junit.py" lint "$run/reports" || true
+    [ $# -eq 0 ] || [ "$1" = "--test" ] || { echo "factory: red-check [--test <name> ...]" >&2; exit 2; }
     if [ "${1:-}" = "--test" ]; then
       names=()
       while [ $# -gt 0 ]; do

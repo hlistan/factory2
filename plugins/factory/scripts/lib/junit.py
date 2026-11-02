@@ -156,7 +156,11 @@ def cmd_red_tests(reports, names):
         hits = [t for t in cases if w in (t["name"], t["id"])]
         if not hits:  # a partial name only when it is unambiguous
             sub = [t for t in cases if w in t["name"]]
-            hits = sub if len({t["id"] for t in sub}) == 1 else []
+            if len({t["id"] for t in sub}) > 1:
+                print(f"{w}\tAMBIGUOUS\tmatches " + "; ".join(sorted({t["id"] for t in sub})[:5]) + " (give the exact name)")
+                flagged += 1
+                continue
+            hits = sub
         if not hits:
             print(f"{w}\tNOT-VISIBLE\tno test result has this name (not collected, or misnamed)")
             flagged += 1
