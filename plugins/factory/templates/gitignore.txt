@@ -1,0 +1,3 @@
+# factory: run state and local incidents (history, config and specs are committed)
+.factory/runs/
+.factory/incidents/
