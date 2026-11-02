@@ -102,4 +102,10 @@ state_update() { # <jq expression> [--arg/--argjson pairs...]: atomically rewrit
 
 now_utc() { date -u +%Y-%m-%dT%H:%M:%SZ; }
 
+factory_hook_log() { # <hook> <input>: appends the raw hook input to $FACTORY_HOOK_LOG (for the M1 smoke tests)
+  [ -n "${FACTORY_HOOK_LOG:-}" ] || return 0
+  printf '%s\t%s\n' "$1" "$(printf '%s' "$2" | tr -d '\n')" >> "$FACTORY_HOOK_LOG" 2>/dev/null
+  return 0
+}
+
 FACTORY_ROOT_DIR="$(factory_root)"

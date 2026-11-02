@@ -14,6 +14,7 @@
 set -u
 input="$(cat)"
 . "$(cd "$(dirname "$0")" && pwd)/lib/common.sh"
+factory_hook_log subagent-stop "$input"
 factory_has jq || exit 0
 
 agent="$(printf '%s' "$input" | jq -r '.agent_type // empty' 2>/dev/null)"

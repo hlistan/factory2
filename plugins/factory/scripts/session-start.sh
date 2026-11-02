@@ -9,6 +9,7 @@
 set -u
 input="$(cat)"
 . "$(cd "$(dirname "$0")" && pwd)/lib/common.sh"
+factory_hook_log session-start "$input"
 factory_has jq || exit 0
 root="$FACTORY_ROOT_DIR"
 [ -f "$root/.factory/config.yaml" ] || exit 0

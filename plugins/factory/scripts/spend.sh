@@ -7,6 +7,7 @@
 set -u
 input="$(cat)"
 . "$(cd "$(dirname "$0")" && pwd)/lib/common.sh"
+factory_hook_log spend "$input"
 factory_has jq && factory_has python3 || exit 0
 slug="$(factory_active_slug)"; [ -n "$slug" ] || exit 0
 run="$FACTORY_ROOT_DIR/.factory/runs/$slug"

@@ -21,7 +21,9 @@
 #   state.sh spend                   print spend by stage and agent (the main session is priced first)
 #   state.sh spend-main              price the main session's transcript into the current stage
 #   state.sh budget-check            exit 1 when the run's estimated spend exceeds limits.budget_usd
-#   state.sh ce-version              print the installed compound-engineering version
+#   state.sh ce-version | ce-path    the installed compound-engineering version, or its install path
+#   state.sh config <jq> [default]   read .factory/config.yaml
+#   state.sh role <agent> <effort>   "<model> <effort>" for a spawn, with roles.<agent> overrides applied
 #   state.sh paths                   print the run's paths (state, run dir, spec dir, history, reports)
 # Exit status: 0 ok, 1 a check failed or a precondition isn't met, 2 usage error.
 set -u
@@ -234,11 +236,22 @@ PY
     jq -n --argjson t "$total" --argjson l "$limit" 'if $t > $l then halt_error(1) else empty end' 2>/dev/null || { echo "factory: budget exceeded; pausing at this gate" >&2; exit 1; }
     ;;
   ce-version) v="$(ce_version)"; [ -n "$v" ] && echo "$v" || { echo "factory: compound-engineering is not installed" >&2; exit 1; } ;;
+  ce-path)
+    f="${CLAUDE_CONFIG_DIR:-$HOME/.claude}/plugins/installed_plugins.json"; v="$(ce_version)"
+    [ -n "$v" ] && [ -f "$f" ] || { echo "factory: compound-engineering is not installed" >&2; exit 1; }
+    jq -r --arg v "$v" '[.plugins // {} | to_entries[] | select(.key | startswith("compound-engineering@")) | .value[]? | select(.version == $v) | .installPath] | first // empty' "$f"
+    ;;
+  config) cfg "${1:-.}" "${2:-}"; echo ;;
+  role)
+    # <agent> <default effort>: prints "<model> <effort>" for a spawn, applying roles.<agent> overrides
+    agent="${1:-}"; def="${2:-high}"
+    printf '%s %s\n' "$(cfg ".roles[\"$agent\"].model" opus)" "$(cfg ".roles[\"$agent\"].effort" "$def")"
+    ;;
   paths)
     need_active
     jq -n --arg state "$run/state.json" --arg run "$run" --arg spec "$(spec_dir "$slug")" --arg history "$(history_file "$slug")" --arg reports "$run/reports" \
       '{state: $state, run: $run, spec: $spec, history: $history, reports: $reports}'
     ;;
-  ''|-h|--help) sed -n '2,27p' "$0" ;;
+  ''|-h|--help) sed -n '2,29p' "$0" ;;
   *) echo "factory: unknown state command '$cmd'" >&2; exit 2 ;;
 esac

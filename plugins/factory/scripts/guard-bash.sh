@@ -18,6 +18,7 @@
 # project.default_branch from .factory/config.yaml.
 input="$(cat)"
 . "$(cd "$(dirname "$0")" && pwd)/lib/common.sh"
+factory_hook_log guard-bash "$input"
 factory_has jq || exit 0
 
 command="$(printf '%s' "$input" | jq -r '.tool_input.command // empty' 2>/dev/null)"
