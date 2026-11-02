@@ -48,8 +48,17 @@ if [ -f "$ip" ]; then
 else
   warn "no $ip; can't check installed plugins"
 fi
-if factory_has claude && [ -n "${ce:-}" ]; then
-  en="$(claude plugin list --json 2>/dev/null | jq -r '[.[]? | select((.id // .name // "") | startswith("compound-engineering")) | .enabled] | first // empty' 2>/dev/null)"
-  [ "$en" = "false" ] && bad "compound-engineering is installed but disabled: claude plugin enable compound-engineering@compound-engineering-plugin"
+if factory_has claude; then
+  # `enabled` stays true for a plugin that fails to load (e.g. an unsatisfied dependency); .errors says why
+  pl="$(claude plugin list --json 2>/dev/null)"
+  T_OUT="$(mktemp "${TMPDIR:-/tmp}/factory-doctor.XXXXXX")"
+  for p in factory compound-engineering; do
+    printf '%s' "$pl" | jq -r --arg p "$p" '.[]? | select(.id | startswith($p + "@")) |
+      if .enabled == false then "FAIL  \(.id) is disabled: claude plugin enable \(.id)"
+      elif ((.errors // []) | length) > 0 then "FAIL  \(.id) fails to load: \(.errors | join("; "))"
+      else empty end' 2>/dev/null
+  done > "$T_OUT"
+  if [ -s "$T_OUT" ]; then cat "$T_OUT"; fail=1; fi
+  rm -f "$T_OUT"
 fi
 exit "$fail"
