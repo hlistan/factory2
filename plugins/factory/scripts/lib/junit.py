@@ -9,6 +9,9 @@
       Before the code exists: lists AC tests that already pass (suspicious: they may assert nothing, or
       test behaviour that already exists) and criteria with no visible test (the suite may not have
       collected). Exit 0 when nothing is flagged, 1 otherwise.
+  junit.py red-tests <reports dir> <name>[,<name>...]
+      Stage 5: each named test (exact test name or id, else a substring of the name) must appear in the
+      results and fail. Exit 0 when all are red, 1 otherwise.
   junit.py lint <reports dir>
       Lists test names that carry an `@AC-n` tag with a suffix (`@AC-1-extra`, `@AC-1b`), which a
       `--grep '@AC-1\\b'` would select by mistake. Exit 0 clean, 1 otherwise.
@@ -140,6 +143,27 @@ def cmd_red(contract, reports):
     return 1 if flagged else 0
 
 
+def cmd_red_tests(reports, names):
+    """Stage 5 fix loop: each named new test must be present in the results and fail."""
+    cases = load_cases(reports)
+    wanted = [n.strip() for n in names.split(",") if n.strip()]
+    if not wanted:
+        print("junit: red-tests needs test names", file=sys.stderr)
+        return 2
+    flagged = 0
+    for w in wanted:
+        hits = [t for t in cases if w in (t["name"], t["id"])] or [t for t in cases if w in t["name"]]
+        if not hits:
+            print(f"{w}\tNOT-VISIBLE\tno test result has this name (not collected, or misnamed)")
+            flagged += 1
+        elif any(t["status"] != "failed" for t in hits):
+            print(f"{w}\tPASSES-EARLY\t" + "; ".join(f"{t['id']} ({t['status']})" for t in hits if t["status"] != "failed"))
+            flagged += 1
+        else:
+            print(f"{w}\tRED\t{len(hits)} result(s) fail")
+    return 1 if flagged else 0
+
+
 def cmd_lint(reports):
     bad = sorted({t["id"] for t in load_cases(reports) if SUFFIXED.search(t["text"])})
     for b in bad:
@@ -153,13 +177,16 @@ def main(argv):
             return cmd_sync(argv[2], argv[3])
         if len(argv) == 4 and argv[1] == "red":
             return cmd_red(argv[2], argv[3])
+        if len(argv) == 4 and argv[1] == "red-tests":
+            return cmd_red_tests(argv[2], argv[3])
         if len(argv) == 3 and argv[1] == "lint":
             return cmd_lint(argv[2])
     except (OSError, ValueError, json.JSONDecodeError) as e:
         print(f"junit: {e}", file=sys.stderr)
         return 2
     print(__doc__.strip().split("\n\n")[0], file=sys.stderr)
-    print("usage: junit.py sync|red <contract.json> <reports dir> | junit.py lint <reports dir>", file=sys.stderr)
+    print("usage: junit.py sync|red <contract.json> <reports dir> | junit.py red-tests <reports dir> <name,...>"
+          " | junit.py lint <reports dir>", file=sys.stderr)
     return 2
 
 

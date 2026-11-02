@@ -76,13 +76,25 @@ state_get() { # <jq filter> [slug]: from the run's state.json, raw
   jq -r "($1) | $_JQ_TEXT" "$f"
 }
 
-_lock_acquire() { # <dir>: a mkdir lock with a stale-lock timeout of 30 s
-  local d="$1" i=0
+_lock_acquire() { # <dir>: a mkdir lock holding the owner's pid; a lock whose owner is dead is stale
+  local d="$1" i=0 pid
   while ! mkdir "$d" 2>/dev/null; do
     i=$((i + 1))
-    if [ "$i" -gt 300 ]; then rm -rf "$d"; i=0; fi # 300 x 0.1 s: a crashed writer's lock
+    if [ $((i % 10)) -eq 0 ]; then # every second: steal the lock only if its owner is gone
+      pid="$(cat "$d/pid" 2>/dev/null)"
+      if [ -n "$pid" ] && ! kill -0 "$pid" 2>/dev/null; then
+        # rename first, then check the pid again: another waiter may already have stolen and re-taken it
+        if mv "$d" "$d.stale.$$" 2>/dev/null; then
+          if [ "$(cat "$d.stale.$$/pid" 2>/dev/null)" = "$pid" ]; then rm -rf "$d.stale.$$"
+          else mv "$d.stale.$$" "$d" 2>/dev/null || rm -rf "$d.stale.$$"; fi
+        fi
+      elif [ -z "$pid" ] && [ "$i" -gt 600 ]; then # no pid for 60 s: a writer died between mkdir and pid
+        rm -rf "$d"; i=0
+      fi
+    fi
     sleep 0.1
   done
+  printf '%s\n' "$$" > "$d/pid"
 }
 
 state_update() { # <jq expression> [--arg/--argjson pairs...]: atomically rewrites the active run's state.json
@@ -92,12 +104,21 @@ state_update() { # <jq expression> [--arg/--argjson pairs...]: atomically rewrit
   _lock_acquire "$f.lock"
   if jq "$@" "$expr" "$f" > "$f.tmp.$$"; then
     mv "$f.tmp.$$" "$f"
-    rmdir "$f.lock" 2>/dev/null
+    rm -rf "$f.lock"
     return 0
   fi
   rm -f "$f.tmp.$$"
-  rmdir "$f.lock" 2>/dev/null
+  rm -rf "$f.lock"
   return 1
+}
+
+factory_guard_prereqs() { # guards: outside a factory project, nothing to guard (exit 0); inside one, a
+  # missing jq or python3, or a .factory/config.yaml that doesn't parse, must not switch the guard off:
+  # exit 1, which gate.sh turns into a block with an explanation
+  [ -f "$FACTORY_ROOT_DIR/.factory/config.yaml" ] || { factory_has jq || exit 0; return 0; }
+  factory_has jq || { echo "factory: jq is missing" >&2; exit 1; }
+  factory_has python3 || { echo "factory: python3 is missing" >&2; exit 1; }
+  factory_config_json >/dev/null 2>&1 || { echo "factory: .factory/config.yaml doesn't parse" >&2; exit 1; }
 }
 
 now_utc() { date -u +%Y-%m-%dT%H:%M:%SZ; }

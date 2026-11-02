@@ -20,19 +20,31 @@ def main():
         print("timeout.py: seconds must be a number", file=sys.stderr)
         return 2
     proc = subprocess.Popen(sys.argv[2:], start_new_session=True)
-    try:
-        return proc.wait(timeout=limit)
-    except subprocess.TimeoutExpired:
-        for sig, grace in ((signal.SIGTERM, 5), (signal.SIGKILL, None)):
+
+    def stop_group():
+        for sig, grace in ((signal.SIGTERM, 5), (signal.SIGKILL, 5)):
             try:
                 os.killpg(proc.pid, sig)
             except ProcessLookupError:
-                break
+                return
             try:
                 proc.wait(timeout=grace)
-                break
+                return
             except subprocess.TimeoutExpired:
                 continue
+
+    def on_signal(signum, _frame):
+        # the child runs in its own session, so a signal to our group (an outer timeout.py, or Claude
+        # Code cancelling the hook) wouldn't reach it: pass it on before exiting
+        stop_group()
+        sys.exit(128 + signum)
+
+    for s in (signal.SIGTERM, signal.SIGINT, signal.SIGHUP):
+        signal.signal(s, on_signal)
+    try:
+        return proc.wait(timeout=limit)
+    except subprocess.TimeoutExpired:
+        stop_group()
         return 124
 
 

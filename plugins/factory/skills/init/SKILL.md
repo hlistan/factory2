@@ -33,11 +33,16 @@ allowed-tools: Bash(bash ${CLAUDE_PLUGIN_ROOT}/scripts/*) Bash(bash ${CLAUDE_PLU
    config until every check runs (failing is fine; "command not found" isn't). Show the final file and
    ask the user to confirm it.
 5. **Playwright.** For web projects: `npm i -D @playwright/cli` (ask first), then
-   `npx playwright-cli install --skills` so qa-evaluator has the playwright-cli skill. Copy
-   `$T/playwright.demo.config.ts` to the project root if there is none.
+   `npx playwright-cli install --skills` (installs the project's `playwright-cli` skill, which
+   qa-evaluator preloads through `skills:`; it can't call the Skill tool. A missing skill is skipped,
+   and qa-evaluator falls back to `playwright-cli --help`). Copy
+   `$T/playwright.demo.config.ts` to the project root if there is none (that template arrives with
+   the evidence milestone, M5; skip this copy while it is missing and say so).
 6. **Files.** Append `$T/gitignore.txt` to `.gitignore` (`.factory/runs/`, `.factory/incidents/`), create
-   `.factory/history/`, copy `$S/monitor.sh` to `.factory/bin/monitor.sh` (CI and launchd run this copy).
+   `.factory/history/`, copy `$S/monitor.sh` to `.factory/bin/monitor.sh` (CI and launchd run this copy; skip while
+   `monitor.sh` doesn't exist yet, milestone M6).
 7. **Scheduler**, per `monitor.scheduler`, only if the user wants it now: `github-actions` copies
    `$T/github-actions-monitor.yml` to `.github/workflows/factory-monitor.yml`; `launchd` fills
-   `$T/launchd-monitor.plist` and shows the `launchctl bootstrap` command for the user to run.
+   `$T/launchd-monitor.plist` and shows the `launchctl bootstrap` command for the user to run. (Both templates and `monitor.sh`
+   arrive with milestone M6; until then say the scheduler isn't available yet.)
 8. Summarise what was written and suggest committing it, then `/factory:run "<feature>"`.

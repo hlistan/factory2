@@ -530,3 +530,33 @@ Verified by `tests/live/deps.sh`, `tests/live/hooks.sh`, `plugins/factory/script
   crash or hang into a decision: block inside a factory project for the PreToolUse guards (allow in
   unrelated projects), record-and-allow for the stop gate (`gate_errors`, reported by the orchestrator).
   PreToolUse entries also carry `onFailure: "block"` and a 30 s timeout.
+
+## Code review fixes (2026-11-02)
+
+Two independent reviews (scripts; prompts against scripts) found 22 defects; all are fixed, with
+regression tests in `tests/regressions.test.sh` and the per-script suites. The behaviour changes:
+
+- **Safety gates.** test-guard resolves paths like the filesystem does (`lib/pathcheck.py`: `..`
+  through missing directories, symlinks, a symlinked root, the input's `cwd`, other spellings of a
+  frozen file on case-insensitive filesystems by inode). It blocks read-only roles everywhere, blocks
+  `.claude/settings*.json` during a run, and allows a check-defining file that plan.md's Exceptions name
+  (implementer or main session only, never `.factory/config.yaml`). guard-bash and test-guard fail closed
+  inside a factory project when jq or python3 is missing or the config doesn't parse. guard-bash sees
+  through `command -p`, `exec -a` and `xargs`. A rollback needs its own approval.
+- **Approvals hold for one pass.** `state.sh stage <n>` going back revokes approvals of gates at n or
+  later (prd 2, evidence 6, deploy and rollback 7).
+- **Freeze.** The first freeze compares check-defining files with the run's base commit (Exceptions
+  apply). Lockfile changes need a dependency name in Exceptions, not just any token.
+- **Stop gate.** Any non-zero from verify-freeze, and any run-checks result other than pass or
+  nothing-to-run, blocks. The time budget subtracts the time already used; `timeout.py` forwards
+  signals to its process group, so nested limits don't orphan test runners.
+- **run-checks** passes commands NUL-separated: multi-line commands and backslashes reach bash unchanged
+  (before, a multi-line check could pass while failing).
+- **State.** The lock records its owner's pid and is stolen only from a dead owner. `.config.json` is
+  written atomically. fold-memory is in Python, idempotent across MEMORY.md and archive.md, verbatim.
+  budget-check: 0 or less is no limit, a non-number is a config error, output is locale-independent.
+- **Orchestrator.** Stage 5 fix loop sets `phase tests` for the test-author, red-checks only the new
+  tests (`state.sh red-check --tests`), and handles `unproven` challenger verdicts and lite depth.
+  Regression tests with no criterion are untagged (no `@AC-0`). QA gets `<run>/evidence/qa/`. Stage 7
+  writes rounds and spend to history; escalations are recorded. Agent `lessons` are candidates only.
+  qa-evaluator preloads the `playwright-cli` skill. Templates and scripts of later milestones are marked.

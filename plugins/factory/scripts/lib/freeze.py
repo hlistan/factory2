@@ -8,6 +8,10 @@
       D/checks.snapshot.json (the `checks` section of the config at this moment). When a freeze already
       exists, the check-defining list must still verify first (a re-freeze may bless reviewed test
       changes, never a changed check); exit 1 and the problems otherwise.
+      The first freeze, with --base B, refuses (exit 1) when check-defining files differ from commit B
+      (the run's start) beyond what the plan's `## Exceptions` section allows.
+  freeze.py exceptions --root R --plan P
+      Prints the backticked names in the plan's `## Exceptions` section, one per line.
   freeze.py verify --root R --run D [--config C] [--plan P]
       Prints `<path>: <problem>` for every frozen file that changed, and every new check-defining file.
       Exit 0 clean, 1 problems, 2 usage or no freeze.
@@ -138,9 +142,11 @@ def kind_of(path):
 
 
 def file_hash(root, path, kind):
-    full = os.path.join(root, path)
-    with open(full, "rb") as f:
-        data = f.read()
+    with open(os.path.join(root, path), "rb") as f:
+        return bytes_hash(f.read(), kind)
+
+
+def bytes_hash(data, kind):
     if kind == "npm":
         try:
             obj = json.loads(data.decode("utf-8"))
@@ -154,9 +160,18 @@ def file_hash(root, path, kind):
 
 def npm_deps(root, path):
     try:
-        with open(os.path.join(root, path), encoding="utf-8") as f:
-            obj = json.load(f)
-    except (OSError, ValueError):
+        with open(os.path.join(root, path), "rb") as f:
+            return bytes_npm_deps(f.read())
+    except OSError:
+        return {}
+
+
+def bytes_npm_deps(data):
+    try:
+        obj = json.loads(data.decode("utf-8"))
+    except (ValueError, AttributeError):
+        return {}
+    if not isinstance(obj, dict):
         return {}
     deps = {}
     for k in NPM_DEP_FIELDS:
@@ -178,6 +193,58 @@ def plan_exceptions(plan):
             if on:
                 names.update(t.strip() for t in re.findall(r"`([^`]+)`", line) if t.strip())
     return names
+
+
+def at_base(root, base, path):
+    """The file's bytes at commit `base`, or None when it didn't exist there."""
+    r = subprocess.run(["git", "-C", root, "show", f"{base}:{path}"], capture_output=True)
+    return r.stdout if r.returncode == 0 else None
+
+
+def base_check(root, cfg, plan, base):
+    """First freeze: the check-defining files must match commit `base` (the run's start), except for
+    what the plan's `## Exceptions` section names, under the same rules as verify()."""
+    exc = plan_exceptions(plan)
+    current, defining = lists_for(root, cfg)
+    problems, seen = [], set()
+    for lst, kind, p in current:
+        if lst != "checks":
+            continue
+        seen.add(p)
+        old = at_base(root, base, p)
+        with open(os.path.join(root, p), "rb") as f:
+            new = f.read()
+        if old is None:
+            if p not in exc:
+                problems.append((p, "a check-defining file was added since the run started"))
+            continue
+        if bytes_hash(old, kind) != bytes_hash(new, kind):
+            if kind == "deps":
+                if not dep_names(root, exc):
+                    problems.append((p, "a lockfile or dependency manifest changed since the run started, and the plan's Exceptions section names no dependency"))
+            elif p in exc and p != CONFIG_PATH:
+                pass
+            else:
+                problems.append((p, "a check-defining file changed since the run started" + (" (outside its dependency fields)" if kind == "npm" else "")))
+        if kind == "npm":
+            o, n = bytes_npm_deps(old), bytes_npm_deps(new)
+            names = sorted({k.split(":", 1)[1] for k in set(o) | set(n) if o.get(k) != n.get(k)})
+            unnamed = [x for x in names if x not in exc]
+            if unnamed:
+                problems.append((p, "dependencies changed since the run started that the plan's Exceptions section doesn't name: " + ", ".join(unnamed)))
+    raw = git(root, "-c", "core.quotePath=false", "ls-tree", "-r", "-z", "--name-only", base)
+    for p in raw.decode("utf-8", "replace").split("\0"):
+        if p and p not in seen and (p == CONFIG_PATH or any(r.match(p) for r in defining)) \
+                and not (p != CONFIG_PATH and p.startswith(OWN_PREFIXES)) and not os.path.exists(os.path.join(root, p)):
+            if p not in exc:
+                problems.append((p, "a check-defining file was deleted since the run started"))
+    return problems
+
+
+def dep_names(root, exc):
+    """The Exceptions tokens that can name a dependency: not a path that exists in the project (a path
+    token unlocks that file, never the lockfiles)."""
+    return {t for t in exc if not os.path.lexists(os.path.join(root, t))}
 
 
 def read_frozen(run):
@@ -217,7 +284,7 @@ def verify(root, run, cfg, plan, lists=("tests", "checks")):
                 if p not in exc:
                     problems.append((p, "a frozen test file was changed after the freeze"))
             elif kind == "deps":
-                if not exc:
+                if not dep_names(root, exc):
                     problems.append((p, "a lockfile or dependency manifest changed, and the plan's Exceptions section names no dependency"))
             elif p in exc and p != CONFIG_PATH:
                 pass  # the plan names this file; the PRD review saw it
@@ -240,12 +307,13 @@ def verify(root, run, cfg, plan, lists=("tests", "checks")):
 
 def main(argv):
     ap = argparse.ArgumentParser(add_help=False)
-    ap.add_argument("cmd", choices=["lists", "freeze", "verify"])
+    ap.add_argument("cmd", choices=["lists", "freeze", "verify", "exceptions"])
     ap.add_argument("--root", required=True)
     ap.add_argument("--config")
     ap.add_argument("--run")
     ap.add_argument("--plan")
     ap.add_argument("--only", choices=["tests", "checks"])
+    ap.add_argument("--base")
     try:
         a = ap.parse_args(argv[1:])
     except SystemExit:
@@ -254,6 +322,10 @@ def main(argv):
     root = os.path.realpath(a.root)
     try:
         cfg = load_config(a.config)
+        if a.cmd == "exceptions":
+            for t in sorted(plan_exceptions(a.plan)):
+                print(t)
+            return 0
         if a.cmd == "lists":
             for lst, kind, p in lists_for(root, cfg)[0]:
                 print(f"{lst}\t{kind}\t{p}")
@@ -275,6 +347,14 @@ def main(argv):
             problems = verify(root, a.run, cfg, a.plan, ("checks",))
             if problems:
                 print("freeze: the check-defining files changed since the last freeze; resolve this before re-freezing:", file=sys.stderr)
+                for p, why in problems:
+                    print(f"{p}: {why}", file=sys.stderr)
+                return 1
+        elif a.base:
+            problems = base_check(root, cfg, a.plan, a.base)
+            if problems:
+                print("freeze: check-defining files differ from the run's base commit; revert them, or add the path or"
+                      " dependency to plan.md's `## Exceptions` section (it is reviewed) and freeze again:", file=sys.stderr)
                 for p, why in problems:
                     print(f"{p}: {why}", file=sys.stderr)
                 return 1

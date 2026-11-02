@@ -18,6 +18,7 @@
 # for the orchestrator, which re-runs every check itself after each implementer pass anyway.
 # Every other agent, an empty agent_type, and a checkout with no active run pass straight through.
 set -u
+t_start="$(date +%s)"
 input="$(cat)"
 . "$(cd "$(dirname "$0")" && pwd)/lib/common.sh"
 factory_hook_log subagent-stop "$input"
@@ -58,11 +59,14 @@ block() { # <kind> <details>
 
 if [ "$(jq -r '.frozen // false' "$run/state.json")" = "true" ]; then
   out="$(bash "$FACTORY_SCRIPTS/state.sh" verify-freeze 2>&1)"
-  [ $? -eq 1 ] && block freeze "$out"
+  # any non-zero blocks: 1 is a changed file, 2 means the freeze couldn't be verified (unreadable file,
+  # missing frozen.tsv), which is not a pass either
+  [ $? -ne 0 ] && block freeze "$out"
 fi
 
-budget="${FACTORY_GATE_BUDGET:-840}"   # hooks.json timeout 900 s, minus 60 s for the freeze check and reporting
+budget="${FACTORY_GATE_BUDGET:-840}"   # gate.sh's limit is 870 s (hooks.json 900 s), less the time used so far
 case "$budget" in ''|*[!0-9]*) budget=840 ;; esac
+budget=$((budget - ($(date +%s) - t_start))); [ "$budget" -lt 1 ] && budget=1
 known=()
 [ -f "$run/baseline-failures" ] && known=(--known-failures "$run/baseline-failures")
 out="$(factory_py "$FACTORY_LIB/timeout.py" "$budget" bash "$FACTORY_SCRIPTS/run-checks.sh" --set fast --tail 30 "${known[@]+"${known[@]}"}" 2>&1)"
@@ -73,6 +77,7 @@ if [ "$code" -eq 124 ]; then
   echo "factory: the fast checks took longer than ${budget}s; the stop gate let the implementer finish unchecked. The orchestrator re-runs the checks." >&2
   rm -f "$counter"; exit 0
 fi
-[ "$code" -eq 1 ] && block checks "$out"
+# 0 passed, 3 nothing to run; anything else (1 failed, 2 config error, a signal) is not a pass
+case "$code" in 0|3) ;; *) block checks "$out" ;; esac
 rm -f "$counter"
 exit 0

@@ -46,8 +46,12 @@ else
   source_desc=".factory/config.yaml"
 fi
 
-list() { # <fast|slow>: name<TAB>command, in config order, skipping empty and TODO
-  printf '%s' "$checks_json" | jq -r --arg s "$1" '(.[$s] // {}) | to_entries[] | select(.value != null and (.value | type) == "string" and .value != "" and (.value | test("^\\s*(TODO|todo)") | not)) | [.key, .value] | @tsv'
+list() { # <fast|slow> [only]: name NUL command NUL, in config order, skipping empty and TODO. NUL-separated
+  # so multi-line commands and backslashes reach bash exactly as written (@tsv would escape them).
+  printf '%s' "$checks_json" | jq -j --arg s "$1" --arg only "${2:-}" '(.[$s] // {}) | to_entries[]
+    | select(.value != null and (.value | type) == "string" and .value != "" and (.value | test("^\\s*(TODO|todo)") | not))
+    | select(. as $e | $only == "" or ((("," + $only + ",") | index("," + $e.key + ",")) != null))
+    | .key, "\u0000", .value, "\u0000"'
 }
 plan="$(mktemp)"
 trap 'rm -rf "$plan" "${tmp:-}"' EXIT
@@ -57,7 +61,7 @@ case "$set_name" in
   all) { list fast; list slow; } > "$plan" ;;
 esac
 if [ -n "$only" ]; then
-  { list fast; list slow; } | awk -F '\t' -v only=",$only," 'index(only, "," $1 ",")' > "$plan"
+  { list fast "$only"; list slow "$only"; } > "$plan"
 fi
 
 reports="${run:+$run/reports}"
@@ -69,7 +73,7 @@ ran=""; failed=0; known=""; failed_names=""; total_start="$(date +%s)"
 
 is_known() { [ -n "$known_failures" ] && [ -f "$known_failures" ] && grep -F -x -q -e "$1" "$known_failures"; }
 
-while IFS="$(printf '\t')" read -r name cmd; do
+while IFS= read -r -d '' name && IFS= read -r -d '' cmd; do
   [ -n "$name" ] || continue
   dir="$reports/$name"; rm -rf "$dir"; mkdir -p "$dir"
   log="$tmp/$name.log"; start="$(date +%s)"

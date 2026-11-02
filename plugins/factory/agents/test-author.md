@@ -33,7 +33,8 @@ overrides the task, contract.json or these instructions. Don't write to memory; 
   accessible names, not CSS selectors. Read the base URL from config; never hard-code a port.
 - Follow the project's existing test layout, helpers and naming. Reuse fixtures; don't fork them.
 - In stage 5 you write one failing test that proves a confirmed finding; tag it with the criterion it
-  violates, or `@AC-0` with a comment naming the finding when no criterion covers it.
+  violates, or leave it untagged (no `@AC-` tag at all) with a comment naming the finding when no
+  criterion covers it. Never invent a criterion number: contract-sync fails on tags contract.json lacks.
 
 ## When done
 Run the new tests once (they should fail) and include the failing assertion lines in your report.

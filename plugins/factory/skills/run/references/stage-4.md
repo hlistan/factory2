@@ -26,8 +26,10 @@
 2. Spawn `implementer`. **First pass: effort from `state.sh role implementer low`.** Brief: contract.json,
    the PRD's criteria, plan.md, the red test output, the port (`state.sh get .port`). Run it in the
    foreground (SubagentStop gates it on the fast checks and the freeze).
-3. When it stops: `bash $S/state.sh verify-freeze` (exit 1: restore the files with `git checkout <frozen_sha>
-   -- <path>`, record an incident, and treat the pass as failed), then
+3. When it stops: `bash $S/state.sh verify-freeze` (exit 1: restore each changed or deleted file with
+   `git checkout <frozen_sha> -- <path>` and delete each new check-defining file it names, record an
+   incident, and treat the pass as failed; the freeze commit is always made before `state.sh freeze`, so
+   `frozen_sha` holds the frozen files), then
    `bash $S/run-checks.sh --set all --known-failures <run>/baseline-failures --tail 40`, then
    `bash $S/state.sh contract-sync`. If `state.sh get '(.gate_timeouts // 0) + (.gate_errors // 0)'`
    grew during the pass, the stop gate didn't check this implementer (see `stop-gate.log` and
@@ -38,8 +40,11 @@
    the failure report: failing checks, contract-sync lines, its predecessor's final report. At most 2
    re-runs, then stop and ask the user.
 6. If the implementer reports that a frozen test is wrong or a dependency is missing: don't let it
-   proceed. Route a wrong test to test-author → test-reviewer → `state.sh freeze`; a missing dependency
-   to the planner (plan.md Exceptions) and then `state.sh freeze`. Ask the user when unsure.
+   proceed. Route a wrong test: `state.sh phase tests` → test-author → test-reviewer → commit →
+   `state.sh freeze` → `state.sh phase code`. Route a missing dependency or a needed check-file change:
+   planner adds it to plan.md's `## Exceptions` (committed) → the next implementer makes exactly that
+   change (test-guard allows Edit/Write to a check-defining file the Exceptions name; dependencies are
+   installed with the package manager) → `state.sh freeze` accepts it. Ask the user when unsure.
 
 ## 4c Docs (`phase docs`)
 Same implementer spawn (or a fresh one at low) to update README, docs and CHANGELOG for the behaviour.

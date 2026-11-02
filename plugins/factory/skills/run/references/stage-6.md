@@ -16,11 +16,13 @@ capture details; `evidence.sh` does the work.
 5. **Approve**: `bash $S/state.sh approve evidence $(git rev-parse HEAD)`, run `ship.pr_ready`, go to 7.
 6. **Comments**: spawn `triager` (high, read-only) with the comments, the PRD, contract.json and the QA
    report. It classifies each comment:
-   - **spec gap** (the PRD didn't ask for it): planner amends the PRD (new or changed criterion) → stage 2.
-   - **defect** (a criterion isn't met): stage 5's fix loop, starting with a failing test.
+   - **spec-gap** (the PRD didn't ask for it): planner amends the PRD (new or changed criterion) → stage 2.
+   - **defect** (a criterion isn't met): stage 5's fix loop (step 7, which sets `phase tests` for the
+     test-author), starting with a failing test.
    - **cosmetic** (no criterion affected): a fresh implementer (low) fixes it directly; fast checks;
      re-capture evidence (step 2).
-   Record each as a history issue `{stage: 6, found_by: human, class, problem_type?, component?}`.
+   Record each as a history issue `{stage: 6, found_by: human, class, problem_type?, component?}`, with
+   `class` exactly as the triager spells it (`spec-gap`, `defect`, `cosmetic`).
    A defect on a criterion QA passed is a **QA false negative**:
    `state.sh history '.qa_false_negatives += [{ac: $a, comment: $c}]' --arg a AC-n --arg c "<comment>"`,
    one calibration line for `qa-evaluator`, and an eval-case candidate (stats exports them).

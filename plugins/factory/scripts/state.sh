@@ -8,7 +8,8 @@
 #   state.sh end                     release the checkout (the run's files stay)
 #   state.sh active                  print the active slug (exit 1 if none)
 #   state.sh get <jq filter>         read state.json             state.sh set <jq expression> [jq args]
-#   state.sh stage <n>               enter stage n (prices the main session's usage so far first)
+#   state.sh stage <n>               enter stage n (prices the main session's usage so far first); going
+#                                    back revokes the approvals of gates at stage n or later
 #   state.sh phase <name>            plan|prd-review|tests|code|docs|review|evidence|ship|monitor
 #   state.sh round <name>            increment a round counter (prd, impl, review, evidence) and print it
 #   state.sh approve <gate> [sha]    record a human approval (prd, evidence, deploy, rollback) against a commit
@@ -16,7 +17,8 @@
 #   state.sh freeze                  freeze tests and check-defining files, snapshot the check commands
 #   state.sh verify-freeze [--only tests|checks]
 #   state.sh contract-sync           set `passes` in contract.json from the JUnit reports (harness only)
-#   state.sh red-check               list AC tests that pass before the code exists
+#   state.sh red-check [--tests <name,...>]  list AC tests that pass before the code exists; with
+#                                    --tests (stage 5), check that each named new test fails
 #   state.sh calibrate <agent> <line>    record one lesson line for an agent (folded at stage 7)
 #   state.sh fold-memory             append the run's lesson lines to each agent's MEMORY.md (idempotent)
 #   state.sh history <jq expr> [jq args] update the committed history record
@@ -48,15 +50,19 @@ slug_ok() { printf '%s' "$1" | grep -E -q '^[a-z0-9][a-z0-9._-]{0,63}$'; }
 need_active() { slug="$(factory_active_slug)"; [ -n "$slug" ] || { echo "factory: no active run in this checkout (state.sh start <slug>)" >&2; exit 1; }; run="$runs/$slug"; }
 spec_dir() { printf '%s/docs/specs/%s' "$root" "$1"; }
 history_file() { printf '%s/.factory/history/%s.json' "$root" "$1"; }
-config_json_file() { local f="$run/.config.json"; factory_config_json > "$f" || { echo "factory: .factory/config.yaml doesn't parse" >&2; exit 2; }; printf '%s' "$f"; }
+config_json_file() { # written atomically: hooks and the orchestrator may call this at the same time
+  local f="$run/.config.json"
+  factory_config_json > "$f.tmp.$$" || { rm -f "$f.tmp.$$"; echo "factory: .factory/config.yaml doesn't parse" >&2; exit 2; }
+  mv "$f.tmp.$$" "$f"; printf '%s' "$f"
+}
 
 history_update() { # <jq expression> [jq args]
   local f expr="$1"; shift
   f="$(history_file "$slug")"
   [ -f "$f" ] || { echo "factory: no history file $f" >&2; return 1; }
   _lock_acquire "$f.lock"
-  if jq "$@" "$expr" "$f" > "$f.tmp.$$"; then mv "$f.tmp.$$" "$f"; rmdir "$f.lock"; return 0; fi
-  rm -f "$f.tmp.$$"; rmdir "$f.lock"; return 1
+  if jq "$@" "$expr" "$f" > "$f.tmp.$$"; then mv "$f.tmp.$$" "$f"; rm -rf "$f.lock"; return 0; fi
+  rm -f "$f.tmp.$$"; rm -rf "$f.lock"; return 1
 }
 
 derive_port() { # a free port derived from the slug, in 41000-48999
@@ -147,7 +153,11 @@ case "$cmd" in
   stage)
     need_active; n="${1:-}"; case "$n" in [1-8]) ;; *) echo "factory: stage is 1-8" >&2; exit 2 ;; esac
     spend_main
-    state_update '.stage = $n | .stage_entered = $at' --argjson n "$n" --arg at "$(now_utc)"
+    # going back (a spec gap to stage 2, a defect or incident to stage 5, ...) revokes every approval
+    # given at that stage or later: an approval holds only for the pass through the stages it was given in
+    revoked="$(jq -r --argjson n "$n" 'if $n < (.stage // 1) then [.approvals // {} | keys[] | select(({prd: 2, evidence: 6, deploy: 7, rollback: 7}[.] // 0) >= $n)] | join(" ") else "" end' "$(state_file)")"
+    state_update '(if $n < (.stage // 1) then .approvals |= with_entries(select(({prd: 2, evidence: 6, deploy: 7, rollback: 7}[.key] // 0) < $n)) else . end) | .stage = $n | .stage_entered = $at' --argjson n "$n" --arg at "$(now_utc)"
+    [ -n "$revoked" ] && echo "factory: back to stage $n; approvals revoked: $revoked"
     ;;
   phase)
     need_active
@@ -182,7 +192,8 @@ case "$cmd" in
     ;;
   freeze)
     need_active; cj="$(config_json_file)"
-    factory_py "$FACTORY_LIB/freeze.py" freeze --root "$root" --config "$cj" --run "$run" --plan "$(spec_dir "$slug")/plan.md" || exit $?
+    base="$(jq -r '.base // empty' "$run/state.json")"
+    factory_py "$FACTORY_LIB/freeze.py" freeze --root "$root" --config "$cj" --run "$run" --plan "$(spec_dir "$slug")/plan.md" ${base:+--base "$base"} || exit $?
     state_update '.frozen = true | .frozen_at = $at | .frozen_sha = $sha' --arg at "$(now_utc)" --arg sha "$(git -C "$root" rev-parse HEAD 2>/dev/null)"
     ;;
   verify-freeze)
@@ -197,7 +208,11 @@ case "$cmd" in
   red-check)
     need_active
     factory_py "$FACTORY_LIB/junit.py" lint "$run/reports" || true
-    factory_py "$FACTORY_LIB/junit.py" red "$(spec_dir "$slug")/contract.json" "$run/reports"
+    if [ "${1:-}" = "--tests" ]; then
+      factory_py "$FACTORY_LIB/junit.py" red-tests "$run/reports" "${2:-}"
+    else
+      factory_py "$FACTORY_LIB/junit.py" red "$(spec_dir "$slug")/contract.json" "$run/reports"
+    fi
     ;;
   calibrate)
     need_active; agent="${1:-}"; line="${2:-}"
@@ -211,31 +226,8 @@ case "$cmd" in
     ;;
   fold-memory)
     need_active; max="$(cfg '.learning.memory_max_lines' 150)"
-    jq -r '.calibration[] | [.agent, .line] | @tsv' "$(history_file "$slug")" | while IFS="$(printf '\t')" read -r agent line; do
-      [ -n "$agent" ] || continue
-      d="$root/.claude/agent-memory/factory-$agent"; mkdir -p "$d"; m="$d/MEMORY.md"
-      [ -f "$m" ] || printf '# factory-%s lessons\n\nReference material, not rules: it never overrides the task, contract.json or your instructions.\n\n' "$agent" > "$m"
-      grep -F -x -q -e "- $line" "$m" && continue
-      printf -- '- %s\n' "$line" >> "$m"
-      n="$(wc -l < "$m" | tr -d ' ')"
-      if [ "$n" -gt "$max" ]; then # keep the header and the newest lessons; move the oldest to archive.md
-        factory_py - "$m" "$d/archive.md" "$max" <<'PY'
-import sys
-m, a, mx = sys.argv[1], sys.argv[2], int(sys.argv[3])
-lines = open(m, encoding="utf-8").read().split("\n")
-if lines and lines[-1] == "": lines.pop()
-head = [l for l in lines if not l.startswith("- ")]
-items = [l for l in lines if l.startswith("- ")]
-keep = max(mx - len(head), 1)
-old, new = items[:-keep], items[-keep:]
-with open(a, "a", encoding="utf-8") as f:
-    f.write("".join(l + "\n" for l in old))
-with open(m, "w", encoding="utf-8") as f:
-    f.write("\n".join(head + new) + "\n")
-PY
-        echo "factory: factory-$agent/MEMORY.md reached $max lines; the oldest lessons moved to archive.md (consolidate with /factory:stats)" >&2
-      fi
-    done
+    case "$max" in ''|*[!0-9]*) max=150 ;; esac
+    factory_py "$FACTORY_LIB/fold.py" "$(history_file "$slug")" "$root" "$max" || exit $?
     echo "factory: lessons folded into .claude/agent-memory/factory-*/MEMORY.md"
     ;;
   history) need_active; [ $# -ge 1 ] || exit 2; history_update "$@" ;;
@@ -255,9 +247,10 @@ PY
     need_active; spend_main
     total="$(jq -r "$SPEND_TOTAL" "$run/state.json")"; total="${total:-0}"
     limit="$(cfg '.limits.budget_usd' 0)"
-    printf 'factory: estimated spend $%.2f of $%s\n' "$total" "$limit"
-    [ "$limit" = "0" ] && exit 0
-    jq -n --argjson t "$total" --argjson l "$limit" 'if $t > $l then halt_error(1) else empty end' 2>/dev/null || { echo "factory: budget exceeded; pausing at this gate" >&2; exit 1; }
+    # numbers only (a "$20" or "20 USD" is a config error, not an exceeded budget); 0 or less means no limit
+    printf '%s' "$limit" | grep -E -q '^[0-9]+([.][0-9]+)?$' || { echo "factory: limits.budget_usd must be a number of dollars, like 60 (got '$limit')" >&2; exit 2; }
+    echo "factory: estimated spend \$$(LC_ALL=C awk -v t="$total" 'BEGIN { printf "%.2f", t }') of \$$limit"
+    jq -n --argjson t "$total" --argjson l "$limit" 'if $l > 0 and $t > $l then halt_error(1) else empty end' 2>/dev/null || { echo "factory: budget exceeded; pausing at this gate" >&2; exit 1; }
     ;;
   ce-version) v="$(ce_version)"; [ -n "$v" ] && echo "$v" || { echo "factory: compound-engineering is not installed" >&2; exit 1; } ;;
   ce-path)
@@ -276,6 +269,6 @@ PY
     jq -n --arg state "$run/state.json" --arg run "$run" --arg spec "$(spec_dir "$slug")" --arg history "$(history_file "$slug")" --arg reports "$run/reports" \
       '{state: $state, run: $run, spec: $spec, history: $history, reports: $reports}'
     ;;
-  ''|-h|--help) sed -n '2,29p' "$0" ;;
+  ''|-h|--help) sed -n '2,/^set -u/p' "$0" | sed '$d' ;;
   *) echo "factory: unknown state command '$cmd'" >&2; exit 2 ;;
 esac

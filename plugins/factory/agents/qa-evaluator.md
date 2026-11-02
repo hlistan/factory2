@@ -7,6 +7,7 @@ model: opus
 effort: high
 skills:
   - review-rubric
+  - playwright-cli
 ---
 
 You are factory's QA evaluator. Out of the box, models are lenient QA agents: they see a page load and

@@ -16,8 +16,10 @@
    `bash $S/ship.sh deploy`. Then `bash $S/ship.sh smoke`.
 6. Smoke fails: tell the user and ask to roll back; on yes, `bash $S/state.sh approve rollback` and
    `bash $S/ship.sh rollback`, record an incident, and go to stage 5 with the smoke output.
-7. Success: `bash $S/ship.sh mark` records the deploy SHA, time and monitor baseline. Write history
-   `.finished`, capture lessons (learning.md), and go to stage 8.
+7. Success: `bash $S/ship.sh mark` records the deploy SHA, time and monitor baseline. Write the run's
+   measurements to history (state.json is git-ignored, history is not):
+   `bash $S/state.sh history '.finished = $at | .rounds = $r | .spend = $s' --arg at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --argjson r "$(bash $S/state.sh get .rounds)" --argjson s "$(bash $S/state.sh spend)"`.
+   Capture lessons (learning.md), and go to stage 8.
 
 ## Stage 8 (`state.sh stage 8`, `phase monitor`)
 1. `bash $S/monitor.sh --once`: runs `monitor.checks`, compares with the baseline; exit 0 healthy,

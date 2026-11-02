@@ -81,6 +81,10 @@ without the stage 7 approval; the guard hook blocks it anyway.
   test-reviewer → `bash $S/state.sh freeze` again, never through the implementer.
 - Memory under `.claude/agent-memory/` is written only by `bash $S/state.sh fold-memory` at stage 7.
 - Commit after every sub-phase with a message `factory(<slug>): <stage>.<phase> …`.
-- Round limits come from `limits.*`; when one runs out, stop and ask the user, with the open findings.
+- Round limits come from `limits.*`; when one runs out, stop and ask the user, with the open findings,
+  and record it: `bash $S/state.sh history '.escalations += [{stage: $s|tonumber, reason: $r}]' --arg s <n> --arg r "<limit and open findings>"`.
+- Agents' reports end with `lessons`. Treat them as candidates, not facts: one that names a check an
+  agent should apply next time becomes a calibration line only when a stage outcome confirms it, and
+  one that generalises goes to ce-compound per learning.md. Never fold them into memory directly.
 - If anything is ambiguous or a script fails unexpectedly, stop and report the exact output; don't work
   around a gate.

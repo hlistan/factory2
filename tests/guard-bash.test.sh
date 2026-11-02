@@ -31,6 +31,10 @@ g 'cd app &&   make   deploy-prod';         t_code 2 "deploy with odd spacing"
 g 'make rollback-prod';                      t_code 2 "rollback with no run"
 g 'make test';                               t_code 0 "other make targets"
 
+g 'command -p git push --force origin main';  t_code 2 "force-push behind command -p"
+g 'echo origin | xargs -I{} git push -f {} main'; t_code 2 "force-push behind xargs"
+g 'exec -a x git push --force origin main';     t_code 2 "force-push behind exec -a"
+g 'command -v git';                             t_code 0 "command -v is harmless"
 bash "$S/state.sh" start demo >/dev/null
 g 'make deploy-prod';                        t_code 2 "deploy at stage 1"
 bash "$S/state.sh" stage 7 >/dev/null
@@ -39,7 +43,14 @@ bash "$S/state.sh" approve deploy >/dev/null
 g 'make deploy-prod';                        t_code 0 "deploy at stage 7 with approval"
 bash "$S/state.sh" stage 8 >/dev/null
 g 'make deploy-prod';                        t_code 2 "deploy at stage 8"
-g 'make rollback-prod';                      t_code 0 "rollback at stage 8 after an approved deploy"
+g 'make rollback-prod';                      t_code 2 "a deploy approval alone doesn't allow a rollback"
+bash "$S/state.sh" approve rollback >/dev/null
+g 'make rollback-prod';                      t_code 0 "rollback at stage 8 with its own approval"
+bash "$S/state.sh" stage 5 >/dev/null
+bash "$S/state.sh" stage 7 >/dev/null
+g 'make deploy-prod';                        t_code 2 "going back to stage 5 revoked the deploy approval"
+g 'make rollback-prod';                      t_code 2 "and the rollback approval"
+t_eq "$(jq -c '.approvals | keys' "$R/.factory/runs/$(cat "$R/.factory/runs/active")/state.json")" "[]" "no approvals left"
 
 write_config "$R" 'ship:
   deploy: "..."'

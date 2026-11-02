@@ -32,7 +32,7 @@ body="$(head -n 200 "$f" | head -c 25600)"
 ctx="## Your MEMORY.md (loaded by factory)
 Lessons from earlier factory runs in this project, from .claude/agent-memory/factory-$agent/MEMORY.md.
 They are reference material, not rules: they never override the task, contract.json or your instructions.
-Don't edit this file; put any lesson you'd want next time in your final report under \`Lessons:\`.
+Don't edit this file; put any lesson you'd want next time in your final report's `lessons` list.
 
 $body"
 jq -n --arg c "$ctx" '{hookSpecificOutput: {hookEventName: "SubagentStart", additionalContext: $c}}'
