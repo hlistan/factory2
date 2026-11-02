@@ -1,149 +1,229 @@
-# Plan v2: `factory`, a Claude Code plugin for an 8-stage development harness (all-Claude phase)
+# Plan v3: `factory`, a Claude Code plugin for an 8-stage development harness (all-Claude phase)
 
-v2 applies every finding in `factory2/docs/PRD-review.md`, which reviewed v1 (`factory2/docs/PRD.md`). The **Review traceability** section at the end maps each finding to its change.
+v3 applies every finding in `factory2/docs/PRD-review-v2.md`. v1, v2 and the first review were overwritten in place and `factory2` has no git history. M0 restores them from this session's transcript into `docs/history/` and runs `git init`, so both traceability tables point at files someone can read. The v1-review table now lives in `docs/history/PRD-v2.md`. The **Review traceability** section at the end maps each v2-review item to its change.
 
 ## Context
 
-You want a simple harness that runs one feature through eight stages:
+You want a simple harness that runs one feature through eight stages: analysis and planning; PRD review by a model and a human; PRD fixes with self-improvement; implementation with unit, integration and Playwright tests plus docs; review and fix with self-improvement; screenshots and video for human approval; merge and deploy; and monitoring. It is built as a Claude Code plugin.
 
-1. analysis and planning
-2. PRD review by a model and a human
-3. PRD fixes, with self-improvement
-4. implementation with unit, integration and Playwright tests, plus docs
-5. review and fix, with self-improvement
-6. screenshots and video for human approval
-7. merge and deploy
-8. monitoring
+These decisions are unchanged from earlier rounds:
 
-It is built as a Claude Code plugin.
+- **All-Claude this phase.** No local models and no OpenHands.
+- **Every agent runs on Opus 5.5, with effort set per role.**
+  - The implementer writes code at **low** effort, and failures are re-run at **high** (your choice).
+  - Sonnet is a per-project override, used only when the project's own stats justify it.
+- **Deploy and monitoring are generic per-project commands.**
+- **Self-learning reuses existing tools:** compound-engineering plus Claude Code's built-in memory.
+- **Replaces `singularity` 0.7.0** in three of the author's projects.
+- **Built in** `~/src/factory2`.
+- **Reused code:**
+  - singularity's gate scripts (MIT): `guard-bash.sh`, `test-guard.sh`, `run-checks.sh`, `subagent-stop.sh` and `change-diff.sh`, from `~/.claude/plugins/cache/singularity/singularity/0.7.0/scripts/`
+  - the Playwright approach from `../factories`
 
-Decisions:
+**Minimum versions:**
 
-- **All-Claude this phase.** No local models or OpenHands.
-- **Every agent defaults to Opus 5.5, with effort tuned per role.** This is Anthropic's measured guidance; Sonnet is a per-project override (see Models).
-- **Generic per-project commands** for deploy and monitoring.
-- **Self-learning adopts existing machinery:** compound-engineering, plus Claude Code's built-in memory.
-- **The plugin replaces `singularity` 0.7.0** in three of the author's projects.
-- **Where to build:** `~/src/factory2`, which currently holds only `docs/`.
-- **What to reuse:**
-  - singularity's gate scripts (MIT): `guard-bash.sh`, `test-guard.sh`, `run-checks.sh`, `subagent-stop.sh`, `change-diff.sh`, from `~/.claude/plugins/cache/singularity/singularity/0.7.0/scripts/`
-  - the Playwright approach from `../factories`: viewports, and a Docker image matched to the app's version
+- Claude Code ≥ 2.1.311. That release fixed SubagentStop firing about twice a minute, and it includes the Agent tool's `effort` parameter, added in 2.1.292.
+- Development uses the installed 2.1.316 for `claude plugin eval`.
+- Playwright ≥ 1.59, which added the Screencast API. 1.64.x is recommended for VP9, `fps` and `style`.
 
-**Minimum versions:** Claude Code ≥ 2.1.311 (fixes SubagentStop firing about twice a minute) and Playwright 1.64.x.
+## Models per agent
 
-## Models per agent (default: Opus 5.5, effort tuned)
+The orchestrator sets effort on every spawn through the Agent tool's `effort` parameter, and overrides models through its `model` parameter. One agent definition therefore serves several effort levels, and `roles` overrides need no file rewriting. Frontmatter holds only the default. No agent uses `max`.
 
-**Evidence.** Anthropic's *Optimizing for cost and intelligence* page, measured on **Opus 5.5** (SWE-bench Pro subset):
-
-- "low, with failures re-run at high" scores about **97% at about $0.17 per task**, against **95.3% at $0.29** for high on everything.
-- This needs a real failure signal, and every first-pass failure costs two runs of wall-clock time.
-- On pairing models, the same page says: "Tune one model before you add a second… Build a pairing only if it beats the single model's whole curve." The orchestrator's model alone at lower effort "came out ahead in every case measured", except routine work with a long cost tail, or work larger than one context window.
-
-Prices per million tokens, input / output: Opus 5.5 $4/$20, Sonnet 5.5 $2/$10, Haiku 5.5 $0.10/$0.50, Fable 5.1 $10/$50.
-
-| Agent | Model · effort | Why |
+| Agent | Model · effort | Rationale (evidence is in the next table) |
 |---|---|---|
-| Orchestrator `/factory:run` (gates, routing, ce-compound calls) | opus · high | Gate decisions. "Most workloads start with Claude Opus 5.5" (*Choosing a model*). |
-| `planner` | opus · high | Its output is unverifiable until review, and "errors in the spec would cascade". The planner was kept because without it "the generator under-scoped", and it cost $0.46 of a $124.70 run (*Harness design*). |
-| `prd-reviewer` | opus · high | A fresh context, separate from the author. Self-correction without outside feedback doesn't help (Huang et al., ICLR 2024). |
-| `learnings-researcher` | opus · low | Retrieval; the caller re-checks it. Effort page: low suits subagents and simple tasks. |
-| `test-reviewer` (new) | opus · high | Checks tests before they freeze. A wrong frozen test becomes a wrong oracle. |
-| `implementer` | **opus · low** first pass; **opus · high** in a **fresh** subagent for each re-run or fix round | The measured Anthropic configuration. A fresh spawn avoids the prompt-cache invalidation from changing effort mid-session. Failure signals: the frozen, reviewed tests and the SubagentStop checks. |
-| `reviewer-correctness`, `reviewer-spec` (blocking) | opus · high | Reviewers at least as strong as the implementer, with execution evidence preferred over opinion. Review rarely beats the stronger model alone (Zhang & Shrestha 2026). CodeRabbit, 80 open-source cases: Opus 5.5 recall 63.8% vs 61.3% for its production mix, with 40–60% more tokens. |
-| `reviewer-security` (blocking) | opus · high; **opus · xhigh** on risk-list changes | Fable 5.1 is an **opt-in override only**. Its evidence is thin: Bug Hunt Bench 43 (one run) vs Opus 41.7 (three runs); The New Stack 5/5 vs 3/5, where Opus's misses hit the output cap. Fable is also a Covered Model: 30-day retention, no zero data retention, a 400 error for non-compliant orgs. |
-| `reviewer-maintainability` (advisory) | opus · medium | Advisory findings only. |
+| Orchestrator (`/factory:run` skill, main session) | opus · high | Gates, routing, calibration lines, and ce-compound calls |
+| `planner` | opus · high | Writes a **product-level** PRD. Technical detail goes in `plan.md`, which is advisory. The post's reason for keeping the planner high-level: "errors in the spec would cascade" (E5). |
+| `prd-reviewer` | opus · high | Reviews in a fresh context, separate from the author (E11) |
+| `learnings-researcher` | opus · low | Retrieval only; the caller re-checks what it returns (E3) |
+| `test-author` (new) | opus · high | Writes the `@AC-n` tests, which become the failure signal for the low-effort policy. Tests are a small share of the tokens (E1). |
+| `test-reviewer` | opus · high | A wrong frozen test is a wrong oracle for the whole run |
+| `implementer` | opus · low on the first pass; opus · high in a **fresh** spawn for each re-run and fix round | Your choice, based on E1. The fresh spawn starts from the failure report and carries no wrong assumptions from the earlier attempt (E6). |
+| `reviewer-correctness`, `reviewer-spec` (blocking) | opus · high | Execution evidence is preferred over opinion |
+| `reviewer-security` (blocking) | opus · high; opus · xhigh on risk-list changes | Fable 5.1 only as an opt-in through `roles` (see the Fable note and E9) |
+| `reviewer-maintainability` (advisory) | opus · medium | Advisory findings only |
 | `challenger` | opus · high | Confirms each blocking finding. No memory, because challengers run in parallel. |
-| `qa-evaluator` | opus · high | "Out of the box, Claude is a poor QA agent". The fix is hard per-criterion thresholds and tuning from its logs (*Harness design*). |
-| `triager` | opus · high | Sorts human comments and diagnoses incidents. |
-| `researcher` (optional) | opus · medium | Gathers outside facts; the planner and the gate re-check them. |
+| `qa-evaluator` | opus · high | "Out of the box, Claude is a poor QA agent"; it improves through the tuning loop (E5) |
+| `triager` | opus · high | Routes human comments and diagnoses incidents |
+| `researcher` (optional) | opus · medium | Gathers outside facts; the planner and the gate re-check them |
 
-- Each spawn sets `effort` explicitly. `xhigh` is used only where listed; nothing uses `max`.
-- **Switching to Sonnet** is a config change: `roles.implementer: {model: sonnet, effort: medium}`. Do it only when `/factory:stats` shows parity on your own runs: first-pass rate, fix rounds, and defects humans found.
+- **Sonnet.** `roles.implementer: {model: sonnet, effort: medium}` is set only after `/factory:stats` shows parity on your own runs: first-pass rate, fix rounds, and defects found by humans. This follows "tune one model before you add a second" (E2).
+- **Effort variables.**
+  - `CLAUDE_CODE_EFFORT_LEVEL` overrides frontmatter `effort`, so `/factory:init` warns when it is set.
+  - M1 checks whether it also overrides the Agent tool parameter.
+  - `CLAUDE_CODE_SUBAGENT_EFFORT` is not needed, because every spawn names its effort.
+- **Fable 5.1.**
+  - It is "not available under ZDR unless expressly authorized by Anthropic". A ZDR org can enable 30-day retention in one non-default workspace.
+  - In The New Stack's test it deleted a flaky test's simulated delay in all five runs (E9). That is exactly the failure the freeze below exists for.
+
+**Prices per million tokens**, from the pricing page on 2026-11-02. `spend.sh` uses these rates.
+
+| Model | Input | 5-minute cache write | 1-hour cache write | Cache hit | Output |
+|---|---|---|---|---|---|
+| Opus 5.5 | $4 | $5 | $8 | $0.20 | $20 |
+| Sonnet 5.5 | $2 | $2.50 | $4 | $0.10 | $10 |
+| Fable 5.1 | $10 | $12.50 | $20 | $0.25 | $50 |
+
+Spend is an estimate at standard prices. It ignores fast mode (Opus 5.5 at $8 / $40) and the ×1.1 multiplier for US-only inference.
+
+### Evidence: class and sample size for each claim, per the PRD's own rubric
+
+| # | Source and what it says | Class, n | What factory uses it for |
+|---|---|---|---|
+| E1 | **Anthropic, *Optimizing for cost and intelligence*.** Opus 5.5 at `low` with failures re-run at `high` scored about 97% at about $0.17 per task; everything at `high` scored 95.3% at $0.29.<ul><li>Run on 478 of a 482-problem SWE-bench Pro subset, "not comparable to the public leaderboard", with two runs averaged.</li><li>It needs a failure signal ("here, the benchmark's own tests"), and every failure costs a second run of wall-clock time.</li><li>"Use this policy for the saving, not the lift." The results are "Anthropic-internal and directional".</li></ul> | Vendor; n=478; 2 runs | The implementer's code phase only. The failure signal here is written at high effort and reviewed (see 1.5 in the traceability table). `stats` records first-pass rate and QA false negatives per effort level. |
+| E2 | **Same page.**<ul><li>"Tune one model before you add a second … Build a pairing only if it beats the single model's whole curve of score against spend."</li><li>The orchestrator's model alone at lower effort "came out ahead in every case measured **on earlier models**" (workers on Sonnet 5).</li><li>Current-model datapoint: Haiku 5.5 subagents under Opus 5.5 at `medium` "cut cost per attempt by 32% and the pass rate by about 4 percentage points", "an alternative to lowering effort, not better".</li></ul> | Vendor; n not stated for the pairing results | Opus everywhere; Sonnet only as a measured override |
+| E3 | **Effort page.** `low` suits "Simpler tasks that need the best speed and lowest costs, such as subagents", with "Significant token savings with some capability reduction". The Opus 5.5 default is `medium`. | Vendor docs | learnings-researcher; the implementer's first pass |
+| E4 | ***Choosing a model*.** "Most workloads start with Claude Opus 5.5." | Vendor docs | The default model |
+| E5 | **Anthropic, *Harness design*.**<ul><li>The planner cost $0.46 of a $124.70 run and was kept because without it "the generator under-scoped".</li><li>"Errors in the spec would cascade" is the post's reason for keeping the planner at a high level.</li><li>"Out of the box, Claude is a poor QA agent". The fix: read the evaluator's logs, find where its judgment diverged, update its prompt, and add few-shot examples with score breakdowns.</li><li>Separating the generator from the evaluator "proves to be a strong lever".</li><li>The post used one model for every role (Opus 4.5, then 4.6) and doesn't discuss effort.</li><li>QA passes cost $3–4 each, against build rounds of $37–71.</li></ul> | Vendor engineering blog; a few runs on one author's apps | Planner scope; the QA tuning loop; separating generator from evaluator; stage cost. **Not** per-role model choice. |
+| E6 | **Anthropic, *Effective harnesses*.**<ul><li>A feature list with `passes: false` per feature; "unacceptable to remove or edit tests".</li><li>It relied on "strongly-worded instructions" and on JSON, because the model "is less likely to inappropriately change or overwrite JSON files".</li><li>Agents should "quickly understand the state of work when starting with a fresh context window". *Harness design* notes that Opus 4.5 and later needed context resets less.</li></ul> | Vendor engineering blog; qualitative | `contract.json`; the harness, not an agent, sets `passes`; fresh re-run spawns |
+| E7 | **CodeRabbit.**<ul><li>Recall: Opus 5.5 Standard 63.8% (51/80), Max 62.5%, baseline 61.3%.</li><li>Precision fell: 38.6% and 35.7%, against 39.3%.</li><li>Tokens: +49.2% and +57.6%.</li><li>Standard caught 11 issues the baseline missed and missed 9 that it caught.</li></ul> | Vendor; n=80 (+13); judge-graded; single run; a 2-bug gap | Opus reviewers are roughly at parity, at more tokens; not a measured gain |
+| E8 | **Bug Hunt Bench**, scoring bugs *fixed*, with each fix verified in the diff.<ul><li>Fable 43 (one run), Opus 41.7 (three runs), Sonnet 5.5 at max 51.3 (the leader).</li><li>A 9-point run-to-run range on a single configuration; "a single run is not a measurement of a model".</li></ul> | Community; single maintainer; n=105 bugs; private answer key | Not decisive for any role. Sonnet's lead is a reason to keep the override measurable. |
+| E9 | **The New Stack.**<ul><li>Concurrency test: Fable passed 5 of 5 runs, Opus 3 of 5. Opus's two misses hit the 128K output cap.</li><li>Flaky test: Fable deleted the simulated delay in all five runs; Opus left the code alone in all five.</li></ul> | Journalist; 5 runs per test | Fable stays opt-in. Evidence that models do weaken tests. |
+| E10 | **Zhang & Shrestha 2026.** Review beat the stronger model alone in 9 of 96 directions. Open-weight models of 3B to 72B, reviewing final answers on QA benchmarks, not code diffs. | Preprint, about 3 weeks old | Weak support for reviewers at least as strong as the author; stated as a design choice |
+| E11 | **Huang et al., ICLR 2024.** Self-correction without outside feedback doesn't help. 2023-era models, reasoning benchmarks. | Peer-reviewed | A separate reviewer context, with execution evidence as the outside signal |
+| E12 | ***Your Agent May Misevolve*, ICLR 2026.** Evolved memory raises reward hacking and attack success. Treating memories "as 'references,' rather than 'rules'" cut attack success from 20.6% to 13.1%; the authors call this "preliminary". | Peer-reviewed; small eval sets | The "reference, not rules" line in prompts; only the harness writes memory |
+| E13 | ***MemoryGraft*; *When Agents Remember Too Much*.** Memory poisoning, shown on MetaGPT DataInterpreter with GPT-4o and on personal-assistant agents. | Preprints | Memory lines are reviewed in the PR |
+| E14 | **METR.** Models were "attempting (often successfully) to get a higher score by modifying the tests or scoring code", including a monkey-patched evaluator and an overwritten equality operator. | Research org; qualitative examples | Freezing the files that define the checks |
 
 ## Self-learning: adopted layers
 
-| Layer | Adopted machinery | How factory uses it |
+| Layer | Adopted tool | How factory uses it |
 |---|---|---|
-| **1. Project knowledge** | **compound-engineering** (Every, MIT, v3.34.0, about 25.8k stars, "runs on 14 agent hosts"). The `ce-compound` skill writes one solution doc per lesson to `<docs_root>/solutions/`. `docs_root` comes from `.compound-engineering/config.yaml` and defaults to `docs`. | Docs use a **two-track frontmatter schema**. Both tracks require `module`, `date`, `problem_type`, `component` and `severity`. The bug track also requires `symptoms`, `root_cause` and `resolution_type`. Optional fields include `tags` (at most 8), `applies_when` (at most 5), `retire_when` and `related_components`. `component` and `root_cause` are open vocabulary, so factory never validates them against a list. |
-| **2. Per-agent calibration** | **Claude Code subagent `memory: project`**, a supported field for plugin agents | Memory lives in `.claude/agent-memory/factory-<agent>/MEMORY.md`. The first 200 lines or 25 KB are injected automatically. |
+| **1. Project knowledge** | **compound-engineering** (Every, MIT, v3.34.0, about 25.8k stars, "runs on 14 agent hosts"). Its `ce-compound` skill writes one doc per lesson to `<docs_root>/solutions/`. `docs_root` comes from `.compound-engineering/config.yaml` and defaults to `docs`. | factory validates no frontmatter itself. `/factory:stats` groups lessons by `problem_type` (a closed list of 17 values) and by `component` (open vocabulary since v3.22.0). |
+| **2. Per-agent calibration** | Claude Code subagent `memory: project` | Memory lives in `.claude/agent-memory/factory-<agent>/MEMORY.md`, and the first 200 lines or 25 KB are injected into the agent. Claude Code handles reading natively; **the harness does all the writing** (see below). |
 | **3. User corrections** | Claude Code auto memory | Built in. Layer 2 depends on it, so `/factory:init` checks that it is on. |
 
-**Capture.** After a verified fix, the orchestrator calls `/compound-engineering:ce-compound mode:non-interactive depth:full "<context>"`, one learning per call. This happens at four points:
+**Capture.** The orchestrator calls the Skill tool for `compound-engineering:ce-compound` with `mode:non-interactive depth:full "<context>"`, one learning per call. It does this at four points:
 
-- after each PRD round where something escaped the reviewer
-- after each blocking finding is confirmed and fixed, or an escalation
-- after each stage 6 issue is resolved
-- after each incident postmortem
+- after a PRD round where something got past the reviewer
+- after a blocking finding is confirmed and fixed, or escalated
+- after a stage 6 issue is resolved
+- after an incident postmortem
 
-The orchestrator **calls the Skill tool explicitly**; naming the command in a skill's text does not expand it.
+Parsing the result:
 
-**Parsing the result:**
-
-- Only the **final line** counts: `Documentation complete` or `Documentation skipped`. The report header also contains the phrase, so a substring match would be ambiguous.
+- Only the **final line** counts: `Documentation complete` or `Documentation skipped`. The header line `✓ Documentation complete (non-interactive mode)` also contains the phrase, so a substring match would be wrong.
 - The orchestrator also parses the `Refresh recommendation:` line.
-- Both results are recorded in `state.json`.
+- Both are recorded in the run's history file.
 
-**Maintenance.** `/compound-engineering:ce-compound-refresh mode:non-interactive <scope>` runs **only when ce-compound emits a refresh recommendation**. ce-compound never runs it itself in non-interactive mode, and the refresh guide warns "broad sweeps without evidence produce churn". `learning.refresh_ceiling` (default 25 runs) is a ceiling only.
+**Dependency contract (review 1.1).**
+
+- `plugin.json` declares a floor only: `>=3.21.1`, the release that renamed the flag to `mode:non-interactive`. A range like `~3.34` cannot pin anything:
+  - compound-engineering tags its releases `compound-engineering-v*`, not the `compound-engineering--v*` format Claude Code resolves against.
+  - Its marketplace source is the relative path `./`, so the install takes the current copy. Factory would then be disabled the day 3.35.0 shipped.
+- The real protection is `tests/ce-contract.sh`. It runs ce-compound non-interactively on a fixture and asserts the final line and the refresh line.
+- When the contract test runs:
+  - `/factory:init` runs it.
+  - The SessionStart hook compares the installed version with the last version that passed, stored in `${CLAUDE_PLUGIN_DATA}/ce-contract.json`. If they differ, `/factory:run` runs the test before stage 1. This also covers `/plugin update`.
+- Each run's history file records the version it resolved.
+- A true pin would need upstream to publish `--v` tags (`claude plugin tag --push`), or a fork in the factory marketplace with its own tags. Neither is done this phase.
+
+**Maintenance.** `ce-compound-refresh mode:non-interactive <scope>` runs only when ce-compound emits a refresh recommendation; the non-interactive mode never runs refresh itself. `learning.refresh_ceiling` (default 25 runs) is a ceiling only.
 
 **Retrieval.**
 
-- `learnings-researcher` runs before stage 1 (for the planner) and before stage 5 (for the reviewers: known risks, regression traps, missing-test patterns).
-- It is a **port, stated as such**: compound-engineering's prompt file `skills/ce-plan/references/agents/learnings-researcher.md` under MIT, with the source commit (`64b74f2`) pinned in the file header.
-- Method: read `CONCEPTS.md`, grep the frontmatter `tags`, `module` and `applies_when`, read the candidates' frontmatter only, and return distilled summaries.
+- `learnings-researcher` runs before stage 1 (for the planner) and before stage 5 (for the reviewers).
+- It is a **port** of `skills/ce-plan/references/agents/learnings-researcher.md` (MIT).
+  - It is pinned to commit `f2762dd` (2026-09-22, PR #1757, the file's most recent change) and to blob `ab60b70641cf6fe395048b511bb96fd3d893663e`.
+  - A test compares that blob with upstream `main` and reports drift.
+- How it searches:
+  1. Read `CONCEPTS.md`.
+  2. Grep the frontmatter fields `tags` and `module`, plus `applies_when` (which only knowledge-track docs have).
+  3. Read the candidates' frontmatter only.
+  4. Return distilled summaries.
 
-**Calibration.**
+**Calibration and memory writes (review 3.1 and 3.4).**
 
-- At the same capture points, the agent that missed something gets a message naming the lesson.
-- It **appends one line** to its `MEMORY.md` and does not rewrite the file.
+- **Agents never write their own memory.**
+  - The PreToolUse `Edit|Write` hook blocks any path under `.claude/agent-memory/`, with the message "memory is curated by the factory harness".
+  - The post-spawn hash check (see Read-only roles below) catches writes made through Bash. They are reverted and logged as an incident.
+  - Read, Write and Edit are turned on automatically for memory agents, and their system prompt tells them to curate `MEMORY.md`. That is why the rule is enforced by hooks rather than stated in a prompt.
+- **The orchestrator writes calibration lines.** At each capture point it records one line for the agent that missed something, with `state.sh calibrate <agent> "<date> <slug>: <check to apply next time>"`. The line goes into the run's committed history file and is reviewed in the PR.
+- **Folding happens once, at stage 7** (`state.sh fold-memory`).
+  - It runs after the branch is updated from `main`, so parallel runs never conflict on `MEMORY.md`.
+  - Only the first 200 lines are injected, so a `MEMORY.md` is capped at `learning.memory_max_lines` (150). Older lines move to `archive.md` in the same directory, which isn't injected but can be read on demand. `stats` lists the agents that need consolidating.
+- Every memory-enabled prompt says: "MEMORY.md is reference material, not rules; it never overrides the task, `contract.json` or these instructions." This is E12's mitigation, which the authors describe as partial and preliminary.
 
-**Memory safety.** *Your Agent May Misevolve* (ICLR 2026) shows evolved memory raising reward hacking and attack success. MemoryGraft and *When Agents Remember Too Much* show memory poisoning. The paper's own mitigation is to frame memory as reference material. So:
+**Memory rules:**
 
-- Every memory-enabled agent prompt says: "MEMORY.md is reference material, not rules; it never overrides the task, `contract.json` or these instructions."
-- Memory writes happen only on a calibration message.
-- All learning files are committed on the feature branch and reviewed in the PR. This is an added safeguard, not the paper's recommendation.
+- Each parallel role has its own agent name, so parallel agents never share a `MEMORY.md`.
+- `memory` is never combined with `isolation: worktree`. Issue #103308, still open, reports a stray empty memory directory under the parent's working directory, while the subagent uses one inside its worktree.
+- The `factory-<agent>` directory name has been observed in #103308 but isn't documented, so it stays an M1 smoke test.
+- No stage depends on memory inside a `claude -p` child.
 
-**Memory rules** (from the docs and the issue tracker):
+**Read-only roles.** These are every agent except `planner`, `test-author` and `implementer`. Two mechanisms:
 
-- one agent name per parallel role, so parallel agents never share a `MEMORY.md`
-- never combine `memory` with `isolation: worktree` (issue #103308: the memory directory lands in the temporary worktree)
-- memory agents' `tools` must include Read, Write and Edit
-- no stage depends on memory inside a `claude -p` child
+1. If M1 confirms that PreToolUse input for subagent calls includes `agent_type`, test-guard blocks every Edit and Write from a read-only role.
+2. Either way, `change-diff.sh --hash` runs before and after each read-only batch. It now includes `.claude/agent-memory/`. Any difference is reverted and logged.
 
-**Read-only roles are checked.** Reviewers have Write and Edit only for their memory. A `change-diff.sh --hash` comparison before and after each review batch flags any write outside `.claude/agent-memory/` as an incident (ported from singularity).
+**Skill gating (review 1.2).**
 
-**Gating compound-engineering skills:**
+- Every agent except the orchestrator sets `disallowedTools: ["Skill"]`. A specifier such as `Skill(name)` would remove the whole Skill tool anyway.
+- Each agent gets the skills it needs preloaded through `skills:`:
+  - `planner`: `prd-format`
+  - `prd-reviewer`: `prd-format` and `review-rubric`
+  - `test-reviewer`, the four lenses, `challenger` and `qa-evaluator`: `review-rubric`
+- These skills are `user-invocable: false` and never `disable-model-invocation: true`, which would make them impossible to preload.
 
-- Every factory agent except the orchestrator sets `disallowedTools: ["Skill(compound-engineering:*)"]`, because ce-compound can auto-trigger on phrases like "it's fixed".
-- The M1 smoke test confirms the rule syntax works. If it doesn't, those agents disallow `Skill` entirely and preload the skills they need with `skills:`.
+**Rubric visibility (review 2.1).**
 
-**Measurement.** `.factory/runs.jsonl` records per run:
+- The implementer sees the acceptance criteria but not reviewer rubrics or memories. This is a design choice, with no citation: there's a Goodhart argument against teaching the implementer the grader's exact wording.
+- *Harness design* did the opposite. It gave the criteria to both agents and found that they helped.
+- `learning.rubric_visible` (default false) lets `stats` compare review rounds with and without the rubric visible.
+
+**Measurement.** Each run writes one committed file, `.factory/history/<slug>.json`. `stats` reads all of them. Each file records:
 
 - issues humans found, by stage, `problem_type` and `component`
-- QA false negatives (stage 6 defects on criteria QA passed)
-- first-pass rates, fix rounds, escalations, incidents
-- estimated spend per stage and agent
+- QA false negatives: stage 6 defects on criteria that QA passed
+- first-pass rate and QA false negatives per implementer effort
+- fix rounds, escalations and incidents
+- spend per stage and per agent
+- the compound-engineering version and the ce-compound outcomes
+- calibration lines
 
-`/factory:stats` shows whether repeat issues decline, and which loops never fire, as candidates to remove under Anthropic's "removing one component at a time".
+Two things `stats` supports:
+
+- **Spend by stage, reported before anyone tunes `limits.depth`.** In E5's run, QA passes cost $3–4 against build rounds of $37–71. The implementer's effort and the number of fix rounds probably dominate spend.
+- **Ablation,** following "removing one component at a time". The criterion is impact on the final result: defects that reach stage 6 or production, compared with a component on and off (for example `lite` vs `full`).
+
+**Agent evals (review 3.8).**
+
+- The plugin repo has an `evals/` directory, run with `claude plugin eval`: three runs per case by default, an optional no-plugin baseline arm, `--max-cost-usd`, and an HTML report.
+- Seed cases:
+  - a PRD with no empty-state criterion (`prd-reviewer`)
+  - a test that asserts nothing (`test-reviewer`)
+  - a diff with a planted auth bypass (`reviewer-security`)
+  - an acceptance criterion the app fails (`qa-evaluator`)
+  - an edit to a `package.json` script that weakens the tests (the freeze)
+- Evals run at each milestone and on every agent-prompt change.
+- QA false negatives exported by `stats` become new `qa-evaluator` cases and few-shot examples in its prompt. This is E5's tuning loop.
 
 ## Stages
 
 | # | What happens | Gate and loop |
 |---|---|---|
-| 1 Analyze and plan | learnings-researcher, then the planner writes:<ul><li>`prd.md`: problem, users, scope and non-goals, UX flows, **EARS acceptance criteria** (Kiro's "WHEN … THE SYSTEM SHALL …"), NFRs, risks, rollout and flag, **monitoring signals**, test level per criterion</li><li>`contract.json` (`{id,text,test_ids:[],passes:false}`)</li><li>`plan.md` (small verifiable steps, tests first)</li></ul> | none |
-| 2 PRD review | prd-reviewer applies a rubric that starts with a **citation check**: every quoted figure must appear in the cited source, with the evidence class (vendor, community or peer-reviewed) and sample size. This rule comes from the misattribution in v1. Then the **human gate** shows a one-screen summary plus the findings, and your comments go to `feedback/prd-<n>.md`. | Approve, or go to 3 |
-| 3 Fix PRD and self-improve | The planner revises. Calibration for the prd-reviewer and planner. ce-compound for each lesson that generalizes. | Back to 2, at most `limits.prd_rounds` (3) |
-| 4 Implement | Branch `factory/<slug>`, with a baseline of failing checks.<ul><li>**(a)** The implementer writes tests tagged `@AC-n` (unit, integration, Playwright e2e).</li><li>**(a2)** **test-reviewer**, in a fresh context, checks them against `contract.json`: every criterion covered, meaningful assertions, failing at the expected assertion for the expected reason. Problems go back to (a).</li><li>**Freeze:** test-guard records hashes for spec files **and** Playwright config, fixtures and test helpers.</li><li>**(b)** The code, then **(c)** README, docs and CHANGELOG.</li></ul>**SubagentStop** (matcher `^factory:implementer$`, empty `agent_type` ignored, explicit `timeout: 900`) runs **fast checks only** (lint, typecheck, unit) and blocks with exit 2 up to `checks.stop_retries` (3), under Claude Code's 8-continuation cap. The orchestrator then runs integration and e2e. **The harness, not the implementer, flips `passes`** in `contract.json`, from reporter output mapped by `@AC-n` tags (`state.sh contract-sync`). Commits come after each sub-phase. | A failing pass means a fresh implementer at opus · high, at most 2 rounds, then you |
-| 5 Review and fix | learnings-researcher first. Mechanical checks first.<ul><li>**`limits.depth`:** `lite` (diff under `lite_max_lines`, nothing on the risk list) runs correctness and spec with no challenger. `full` runs all four lens agents plus the challenger on each blocking finding. `stats` compares what `full` caught that `lite` would have missed.</li><li>**qa-evaluator** drives the running app with `playwright-cli` (Bash; plugin agents ignore `mcpServers`, and Microsoft calls the CLI "more token-efficient" for coding agents). It emits **one pass or fail per AC-n, with a screenshot or trace path as evidence**, and **any fail blocks**.</li><li>**What the implementer sees:** the ACs (the shared contract), not reviewer rubrics or memories, so evaluation stays independent. *Harness design*: "the wording of the criteria steered the generator".</li><li>Each confirmed finding gets a failing test, then the fix in a fresh implementer at opus · high. Only the lenses that blocked review again.</li><li>Then calibration and ce-compound.</li></ul> | At most `limits.review_rounds` (2), then you |
-| 6 Evidence | The `@AC-n` e2e specs are the demo script, run under `playwright.demo.config.ts` (Playwright 1.64.x):<ul><li>`video: {mode:'on', show:{...}}` with `page.screencast.showChapter()` per criterion and `showActions()`</li><li>Docker image `mcr.microsoft.com/playwright:v<app version>-noble`</li><li>one criterion selected with `--grep "@AC-1\b"`</li><li>screenshots at 1440, 768 and 390 widths</li></ul>`evidence.sh` converts WebM to H.264 mp4 with ffmpeg and builds `review-pack/index.html`, which opens locally. `evidence.publish` is optional.<br><br>**The triager routes each of your comments by class:**<ul><li>spec gap: PRD amendment, then stage 2</li><li>defect: stage 5, with a failing test first</li><li>cosmetic: a direct implementer fix, then evidence re-captured</li></ul>A defect on a criterion QA passed is logged as a **QA false negative** and calibrates the qa-evaluator. | Approve, or route by class, at most `limits.evidence_rounds` (3) |
-| 7 Merge and deploy | Preconditions: approval recorded against the evidence SHA, checks green, no commits since. Then `ship.merge` → `ship.deploy` (after your explicit confirmation; the guard hook blocks deploy and rollback commands outside stage 7) → `ship.smoke` (`@smoke` against production) → `ship.rollback` on failure. The deploy marker and baseline are recorded. | You confirm |
-| 8 Monitor | **`monitor.sh` is pure shell.** It runs `monitor.checks`, compares with the baseline, and on an anomaly writes `incidents/I-n.md` and exits non-zero. No model runs unless there is an anomaly. Schedulers (documented in `/factory:monitor`):<ul><li>**local** `/loop 15m /factory:monitor <slug>`: fires only while the session is idle, has a 7-day expiry, and doesn't catch up on missed runs</li><li>**macOS launchd/cron or a Desktop scheduled task**, any interval</li><li>**GitHub Actions cron** running `monitor.sh`, and on failure `claude -p --max-budget-usd <n>`</li></ul>Cloud sessions don't install plugins, so `/factory:init` commits a self-contained `.claude/skills/factory-monitor/` with `monitor.sh` for the CI and cloud paths. Cloud routines run at most hourly. **A 15-minute interval is available only locally or in CI.** On an anomaly, the triager correlates it with the deploy SHA, `auto_rollback` applies, and the run goes back to 5 with a reproducing test required. Then the postmortem through ce-compound. | Back to 5 |
+| 1 Analyze and plan | `learnings-researcher` runs, then the planner writes three files:<ul><li>`prd.md`, at product level: the problem, users, scope and non-goals, UX flows including empty, loading, error and permission states, **EARS acceptance criteria** (Kiro's "WHEN … THE SYSTEM SHALL …"), NFRs, risks, rollout and feature flag, **monitoring signals**, and the test level for each criterion</li><li>`contract.json`: `{id, text, test_ids: [], passes: false}` per criterion</li><li>`plan.md`: small verifiable steps, plus an `## Exceptions` list of dependencies to add. It is advisory.</li></ul> | none |
+| 2 PRD review | The `prd-reviewer`'s rubric starts with whether each criterion is testable and whether the states are covered. A **citation check** applies only **when the PRD quotes a figure or a source**: the figure must appear in the cited source, with its evidence class and sample size.<br><br>Then the **human gate**: a one-screen summary plus the findings. Your comments go to `feedback/prd-<n>.md`. | Approve, or go to 3 |
+| 3 Fix PRD and self-improve | The planner revises the PRD. Calibration lines go to the `prd-reviewer` and the planner, and ce-compound runs for each lesson that generalizes. | Back to 2, at most `limits.prd_rounds` (3) times |
+| 4 Implement | Branch `factory/<slug>`, with a port for this run and a baseline of currently failing checks.<ul><li>**(a)** `test-author` (opus · high) writes tests at the level the PRD names. Each test has `@AC-n` **in its title**, never with a suffix such as `@AC-1-extra`.</li><li>**(a1)** `run-checks.sh red`: every new test must fail against the unchanged code. A test that already passes is flagged to the test-reviewer.</li><li>**(a2)** `test-reviewer` checks every criterion is covered and every assertion means something:<ul><li>unit and integration tests must fail at the expected assertion, for the expected reason</li><li>an e2e test must start with an explicit presence check (`await expect(locator).toBeVisible({timeout: 5000})`), and its later assertions must be reachable once the element exists</li></ul>Problems go back to (a).</li><li>**Freeze.** test-guard hashes two lists:<ol><li>**tests:** specs, Playwright config, fixtures and helpers</li><li>**check-defining files** (`checks.check_defining`): `package.json` (hashed without its dependency fields), the lockfile, unit and e2e runner configs, `tsconfig*.json`, lint and format configs, CI config, and `.factory/config.yaml`</li></ol>The check commands are snapshotted to `.factory/runs/<slug>/checks.snapshot.json`, and `run-checks.sh` reads only that snapshot. A dependency named in `plan.md`'s exceptions may change the dependency fields and the lockfile (`test-guard check --plan`).</li><li>**(b)** The implementer writes the code (opus · low). **(c)** README, docs and CHANGELOG.</li></ul>**SubagentStop** (matcher `^factory:implementer$`, empty `agent_type` ignored, `timeout: 900`):<ul><li>first re-checks both hash lists; a changed hash counts as a failed check and the message names the file</li><li>then runs the fast checks from the snapshot</li><li>blocks with exit 2 up to `checks.stop_retries` (3) times, under Claude Code's limit of 8 consecutive continuations</li></ul>The orchestrator then runs integration and e2e checks from the snapshot.<br><br>**`contract-sync`:**<ul><li>Every check writes JUnit XML: Playwright's `junit` reporter, Vitest `--reporter=junit`, Jest through `jest-junit`.</li><li>`state.sh contract-sync` matches `AC-\d+\b` in test-case names.</li><li>A criterion gets `passes: true` only when at least one test names it and every test that names it passed.</li><li>The harness sets `passes`; no agent does.</li></ul>There is a commit after each sub-phase. At the end of the stage the branch is pushed and a **draft PR** is opened (`ship.pr_open`), with its number recorded in `state.json`. | On a failing pass: a fresh implementer at opus · high, at most 2 rounds, then you |
+| 5 Review and fix | `learnings-researcher` runs first, then the mechanical checks.<ul><li>**`limits.depth`:** `lite` (diff under `lite_max_lines` and nothing on the risk list) runs correctness and spec only, with no challenger. `full` runs all four lenses plus the challenger on each blocking finding.</li><li>**`qa-evaluator`** drives the running app with `playwright-cli` (package `@playwright/cli`, fallback `npx playwright cli`). It gives **one pass or fail per `AC-n`, with a screenshot or trace path as evidence**. Any fail blocks.</li><li>Each confirmed finding goes through `test-author` (a failing test), then `test-reviewer`, then an extension of the freeze, then a fresh implementer at opus · high. Only the lenses that blocked review again.</li><li>Calibration lines and ce-compound follow.</li></ul> | At most `limits.review_rounds` (2), then you |
+| 6 Evidence | The `@AC-n` e2e specs are the demo script, run under `playwright.demo.config.ts`:<ul><li>`use.video: {mode: 'on', show: {actions: {...}, test: {level: 'step'}}}`, with `page.screencast.showChapter()` for each criterion (Screencast API since 1.59)</li><li>Docker image `mcr.microsoft.com/playwright:v<the app's Playwright version>-noble` (`-jammy` and `-resolute` also exist)</li><li>a single criterion is selected with `--grep '@AC-1\b'`, in single quotes</li><li>screenshots at 1440, 768 and 390 pixels wide</li></ul>`evidence.sh` converts the WebM video (VP9 since 1.64) to H.264 mp4 with ffmpeg. That step is factory's own practice, not a Playwright feature. It also builds `review-pack/index.html`.<br><br>The **triager routes each of your comments by class:**<ul><li>spec gap: a PRD amendment, then stage 2</li><li>defect: stage 5, with a failing test first</li><li>cosmetic: a direct fix by the implementer, then evidence re-captured</li></ul>A defect on a criterion QA passed is a **QA false negative**. It gets a `qa-evaluator` calibration line and becomes a candidate eval case.<br><br>On approval, the evidence SHA is recorded and the PR is marked ready (`ship.pr_ready`). | Approve, or route by class, at most `limits.evidence_rounds` (3) |
+| 7 Merge and deploy | `ship.sh verify` checks that:<ul><li>approval was recorded against the evidence SHA</li><li>checks are green</li><li>every commit after the approved SHA is either a conflict-free merge of `origin/main` or the harness's memory-fold commit (only `.claude/agent-memory/factory-*/`, with lines taken from the approved history file)</li></ul>Then the order is: update from `main`, run `fold-memory`, then `ship.merge` → `ship.deploy` → `ship.smoke` → `ship.rollback` if smoke fails.<ul><li>`ship.deploy` waits for your explicit confirmation. The guard hook blocks deploy and rollback commands outside stage 7.</li><li>`ship.smoke` runs the `@smoke` tests against production.</li></ul>The deploy marker and baseline are recorded. | You confirm |
+| 8 Monitor | **`monitor.sh` is pure shell.**<ul><li>It runs `monitor.checks` and compares the results with the baseline.</li><li>On an anomaly it files an incident: `.factory/incidents/I-n.md` locally, or a GitHub issue labelled `factory-incident` when `monitor.report: github-issue`. It runs `ship.rollback` only if `auto_rollback: true`, then exits non-zero.</li></ul>Schedulers:<ul><li>**local** `/loop 15m /factory:monitor <slug>`: runs only while the session is idle, expires after 7 days, and doesn't catch up on missed runs. The triager runs immediately on an anomaly.</li><li>**launchd or cron**, or a Desktop scheduled task: runs `monitor.sh` and shows a macOS notification on an anomaly.</li><li>**GitHub Actions cron:** runs the committed copy `.factory/bin/monitor.sh`. It only detects and files: no `claude -p`, so CI needs no Anthropic credential.</li></ul>Incidents filed by CI or launchd are triaged when the next local `/factory:run` or `/factory:status` picks them up. The triager correlates the incident with the deploy SHA, the run goes back to stage 5 with a reproducing test, and a postmortem goes through ce-compound. Cloud routines are not offered: they run at most hourly and can't install plugins. | Back to 5 |
 
-**State and budget:**
+**State, spend and parallel runs:**
 
-- `.factory/runs/<slug>/state.json` holds the stage, round counters, gate approvals with SHAs, escalations, models and efforts used, ce-compound outcomes, and **estimated spend per stage** (subagent token usage times the price table).
-- **`limits.budget_usd`** pauses at the next gate when it is exceeded. `--max-budget-usd` exists only in print mode, so interactive runs need this.
-- `/factory:run <slug>` resumes from the recorded stage.
-- One run per checkout, enforced by a lock; parallel runs use `claude --worktree`.
+- **State.** `.factory/runs/<slug>/state.json` (git-ignored) holds the stage, round counters, gate approvals with their SHAs, the PR number, the port, freeze hashes, the models and efforts used, and spend. `.factory/history/<slug>.json` (committed) is the measurement record.
+- **Spend (review 3.7).**
+  - A second SubagentStop hook, matcher `^factory:`, runs `spend.sh` and always exits 0. It sums `usage` from `agent_transcript_path`, per spawn, into the current stage.
+  - The orchestrator's own usage comes from the main `transcript_path` at each stage boundary.
+  - Usage is priced with the table above, including the cache tiers.
+  - Spawns stopped with TaskStop may never fire SubagentStop (#92716). They are reported as unpriced.
+- **Budget.** `limits.budget_usd` pauses the run at the next gate. `--max-budget-usd` exists only in print mode, so interactive runs need this setting.
+- **Resume and lock.** `/factory:run <slug>` resumes from the recorded stage. A lock allows one run per checkout.
+- **Parallel runs** use `claude --worktree`:
+  - The worktree lives at `<repo>/.claude/worktrees/<name>`, so project memory inside it reaches `main` only through the branch. That is intended.
+  - Each run gets its own port. It is derived from the slug, checked to be free, and passed as `FACTORY_PORT` to `project.start`, Playwright's `webServer` and `project.url`.
 
 ## Plugin layout (`factory2/`, a git-hosted marketplace repo)
 
@@ -151,163 +231,237 @@ The orchestrator **calls the Skill tool explicitly**; naming the command in a sk
 .claude-plugin/marketplace.json     "factory" → ./plugins/factory; allowCrossMarketplaceDependenciesOn: ["compound-engineering-plugin"]
 plugins/factory/
   .claude-plugin/plugin.json        version 0.1.0; dependencies: [{name: "compound-engineering",
-                                    marketplace: "compound-engineering-plugin", version: "~3.34"}]
+                                    marketplace: "compound-engineering-plugin", version: ">=3.21.1"}]
   skills/run/SKILL.md               /factory:run <request|slug> [--from <stage>]  (model: opus, effort: high)
   skills/{init,monitor,status,stats}/SKILL.md
-  skills/{prd-format,review-rubric,evidence}/SKILL.md   (user-invocable: false; review-rubric starts with the citation check)
-  agents/  planner prd-reviewer learnings-researcher(port, pinned) test-reviewer implementer
-           reviewer-correctness reviewer-spec reviewer-security reviewer-maintainability challenger
-           qa-evaluator triager researcher
-           (memory: project on all but learnings-researcher, challenger and researcher)
-  hooks/hooks.json   SessionStart · PreToolUse Bash (guard-bash; deploy/rollback only in stage 7 with approval)
-                     · PreToolUse Edit|Write (test-guard) · SubagentStop ^factory:implementer$ (fast checks, timeout 900)
-  scripts/  guard-bash.sh test-guard.sh run-checks.sh subagent-stop.sh change-diff.sh   (ported, trimmed)
-            state.sh (state, lock, runs.jsonl, contract-sync, spend)  evidence.sh  ship.sh  monitor.sh
-  templates/ factory.config.yaml  playwright.demo.config.ts  review-pack.html  factory-monitor/ (skill + monitor.sh)
+  skills/{prd-format,review-rubric,evidence}/SKILL.md   (user-invocable: false; preloaded through skills:)
+  agents/  planner prd-reviewer learnings-researcher (port, f2762dd / blob ab60b70) test-author test-reviewer
+           implementer reviewer-{correctness,spec,security,maintainability} challenger qa-evaluator triager researcher
+           (disallowedTools: [Skill] on all; memory: project on all but learnings-researcher, challenger, researcher)
+  hooks/hooks.json  SessionStart (ce version check, settings check)
+                    PreToolUse Bash (guard-bash) · PreToolUse Edit|Write (test-guard: frozen lists, memory paths, read-only roles)
+                    SubagentStop ^factory:implementer$ (hash re-check, then fast checks; timeout 900) · SubagentStop ^factory: (spend)
+  scripts/  guard-bash test-guard run-checks subagent-stop change-diff     (ported from singularity, trimmed)
+            state (state, lock, history, contract-sync, calibrate, fold-memory, budget)  spend  evidence  ship  monitor
+  templates/ factory.config.yaml  playwright.demo.config.ts  review-pack.html
              github-actions-monitor.yml  launchd-monitor.plist  gitignore.txt
-tests/   bash tests per script; contract test for ce-compound; hook-firing test from a git-source install
-docs/    PRD.md (updated to v2)  PRD-review.md  solutions/ (factory's own learnings)
+evals/   claude plugin eval cases and graders, per agent
+tests/   bash tests per script · ce contract test · dependency-resolution tests · hook-firing tests (git and directory sources)
+docs/    PRD.md (v3)  PRD-review-v2.md  history/ (PRD-v1.md, PRD-v2.md, PRD-review.md)  solutions/
 README.md (credits compound-engineering and singularity)  CHANGELOG.md
 ```
 
 **`/factory:init`:**
 
-- Checks Claude Code ≥ 2.1.311, auto memory on, and compound-engineering installed. If it's missing, prints `/plugin marketplace add EveryInc/compound-engineering-plugin`, `/plugin install compound-engineering`, and for upgrades `/plugin marketplace update compound-engineering-plugin` first.
-- Runs `ce-setup`.
-- Installs `playwright-cli`.
-- Writes `.factory/config.yaml`.
-- Commits `.claude/skills/factory-monitor/`.
-- **Works around issue #105625** (plugin hooks don't fire unless a settings-level hook exists for the same event) by adding a no-op settings-level hook for SessionStart, PreToolUse and SubagentStop when none exists.
+- **Checks:**
+  - Claude Code ≥ 2.1.311 and auto memory on
+  - neither `disableAllHooks` nor `allowManagedHooksOnly` set
+  - no other enabled plugin named `factory`: a name collision is a documented reason plugin hooks don't fire
+  - a warning if `CLAUDE_CODE_EFFORT_LEVEL` is set
+- **compound-engineering:** confirms it is installed and enabled, or prints the install commands. Then it runs the contract test and `ce-setup`.
+- **Installs and writes:**
+  - installs `@playwright/cli`
+  - writes `.factory/config.yaml`
+  - copies `monitor.sh` to `.factory/bin/` with a version header
+  - adds the GitHub Actions or launchd template if you ask for it
+- **No settings-level hooks.** The v2 workaround rested on misread issues.
 
 **Files in each target repo:**
 
-- Committed: `.factory/config.yaml`, `.factory/runs.jsonl`, `docs/specs/<slug>/{prd.md,contract.json,plan.md}`, `<docs_root>/solutions/`, `CONCEPTS.md`, `.claude/agent-memory/factory-*/`
-- Git-ignored: `.factory/runs/<slug>/`
+- Committed: `.factory/config.yaml`, `.factory/history/<slug>.json`, `.factory/bin/monitor.sh`, `docs/specs/<slug>/{prd.md,contract.json,plan.md}`, `<docs_root>/solutions/`, `CONCEPTS.md`, `.claude/agent-memory/factory-*/`
+- Git-ignored: `.factory/runs/`, `.factory/incidents/`
 
 **Example per-project config:**
 
 ```yaml
-project:  {default_branch: main, start: "npm run dev", url: http://localhost:3000, ready: /health}
-checks:   {fast: {lint: "npm run lint", typecheck: "npm run typecheck", unit: "npm test"},
-           slow: {integration: "...", e2e: "npx playwright test"}, stop_retries: 3, hook_timeout: 900}
+project:  {default_branch: main, start: "PORT=$FACTORY_PORT npm run dev", url: "http://localhost:$FACTORY_PORT", ready: /health}
+checks:   {fast: {lint: "npm run lint", typecheck: "npm run typecheck", unit: "npx vitest run --reporter=junit --outputFile=$FACTORY_REPORTS/unit.xml"},
+           slow: {integration: "...", e2e: "npx playwright test --reporter=junit"},   # every check writes JUnit XML into $FACTORY_REPORTS
+           check_defining: [package.json, package-lock.json, "vitest.config.*", "playwright.config.*", "tsconfig*.json", "eslint.config.*", ".github/workflows/*"],
+           stop_retries: 3, hook_timeout: 900}
 roles:    {}   # e.g. implementer: {model: sonnet, effort: medium}; reviewer-security: {model: fable, effort: high}
 limits:   {prd_rounds: 3, review_rounds: 2, evidence_rounds: 3, depth: auto, lite_max_lines: 150, budget_usd: 60}
 risk_list: [auth, payments, personal-data, crypto, migrations, public-api, concurrency, dependencies]
 evidence: {viewports: [1440x900, 768x1024, 390x844], publish: ""}
-ship:     {merge: "gh pr merge --squash", deploy: "...", smoke: "BASE_URL=... npx playwright test --grep @smoke", rollback: "..."}
-monitor:  {window_hours: 24, scheduler: local-loop, interval: 15m, auto_rollback: false, checks: [{name: health, cmd: "curl -fsS .../health"}]}
-learning: {enabled: true, compound_depth: full, refresh_ceiling: 25}
+ship:     {pr_open: "gh pr create --draft --fill", pr_ready: "gh pr ready", merge: "gh pr merge --squash",
+           deploy: "...", smoke: "BASE_URL=... npx playwright test --grep @smoke", rollback: "..."}
+monitor:  {window_hours: 24, scheduler: local-loop, interval: 15m, report: file, auto_rollback: false,
+           checks: [{name: health, cmd: "curl -fsS .../health"}]}
+learning: {enabled: true, compound_depth: full, refresh_ceiling: 25, memory_max_lines: 150, rubric_visible: false}
 ```
 
 ## Build order
 
-0. **Self-improvement on this review.**
-   - Update `docs/PRD.md` to v2.
-   - Write the review's lessons as the first entries in factory's own `docs/solutions/`: "cite primary sources; aggregators don't contain the figures", and "a dependency floor is not a pin".
-   - Seed the `review-rubric` skill with the citation check.
+0. **M0: self-improvement on both reviews.**
+   - Run `git init` in factory2.
+   - Restore the v1 plan, the v2 plan (the current `docs/PRD.md`) and the first review from this session's transcript into `docs/history/`, and commit them.
+   - Write `docs/PRD.md` v3. From then on, every PRD change goes through review and a commit.
+   - Seed factory's own `docs/solutions/` with five lessons:
+     - "cite primary sources; aggregators don't contain the figures"
+     - "a dependency range is only as good as the tags it resolves against"
+     - "a real quote can still be inverted; check what the source did, not only what it said"
+     - "a tool-level deny with a specifier removes the whole tool"
+     - "before building a workaround, confirm the issue says what you think and is still open"
+   - Seed the `review-rubric` skill with the conditional citation check.
 1. **M1: platform proof.**
-   - Marketplace, skeleton, `claude plugin validate --strict` (including the `~3.34` dependency syntax), `state.sh`, ported scripts and their tests.
-   - **Contract test:** run ce-compound non-interactively on a fixture; assert the final line and the `Refresh recommendation:` line.
-   - **Hook test:** install from a **git-source** marketplace (directory-source installs don't run plugin hooks, issue #86809) and verify that every hook fires, with and without the #105625 workaround.
-   - **Smoke tests:** a plugin agent's `memory` directory is `factory-<agent>`; the `disallowedTools: Skill(compound-engineering:*)` syntax works; the SubagentStop matcher and the timeout behave.
-2. **M2.** Stages 1–3: planner, prd-reviewer with the citation-check rubric, the human gate, calibration, capture.
-3. **M3.** Stage 4: implementer, test-reviewer, the extended freeze, SubagentStop with fast checks, `contract-sync`, fresh-subagent re-runs, budget tracking.
-4. **M4.** Stage 5: four lens agents, challenger, `limits.depth`, the qa-evaluator per-criterion verdicts via `playwright-cli`, the read-only hash check.
-5. **M5.** Stage 6: demo config (Playwright 1.64 Screencast), `evidence.sh`, the review pack, routing by class, QA false-negative logging.
-6. **M6.** Stages 7–8: `ship.sh`, the deploy guard, pure-shell `monitor.sh`, the three scheduler templates, the committed `factory-monitor` skill, the incident loop.
-7. **M7.** `stats` (including a Sonnet-vs-Opus implementer comparison when `roles` overrides exist). Then **migrate off singularity**, each step after your OK:
+   - Marketplace and skeleton; `claude plugin validate --strict`; `claude plugin details factory` (the projected token cost of the agent and skill descriptions); `state.sh`; the ported scripts and their bash tests.
+   - **Dependency resolution:** install factory from a git-source marketplace and check that `claude plugin list` shows compound-engineering enabled. A negative test with an unsatisfiable range must show factory disabled with a `Requires …` message.
+   - **ce contract test.**
+   - **Hook-firing test** from both a git-source and a directory-source marketplace. Every hook must fire, because the deploy guard and the freeze are safety gates.
+   - **Smoke tests:**
+     - a plugin agent's memory directory is `factory-<agent>`
+     - PreToolUse input for subagent calls includes `agent_type`
+     - the SubagentStop matcher and timeout behave as configured
+     - the Agent tool's `effort` and `model` parameters take effect, and whether `CLAUDE_CODE_EFFORT_LEVEL` overrides them
+     - a subagent with `disallowedTools: [Skill]` cannot run ce-compound
+     - the status of #92750 and its noted `omitClaudeMd` workaround
+   - The `evals/` scaffold with its first case.
+2. **M2: stages 1–3.** Planner, `prd-reviewer`, the human gate, calibration lines and capture; `prd-reviewer` eval cases.
+3. **M3: stage 4.**
+   - `test-author`, the red check and `test-reviewer`
+   - the two-list freeze, the checks snapshot, and the SubagentStop hash re-check
+   - JUnit `contract-sync`, the draft PR, fresh-spawn re-runs, the spend hook and the budget
+   - eval cases for `test-reviewer` and the freeze
+4. **M4: stage 5.** Four lenses, the challenger, `limits.depth`, `qa-evaluator` with `playwright-cli`, and read-only enforcement; eval cases for the lenses and QA.
+5. **M5: stage 6.** Demo config, `evidence.sh`, the review pack, routing by class, and exporting QA false negatives as eval cases.
+6. **M6: stages 7–8.** `ship.sh` (including `verify` and `fold-memory`), the deploy guard, `monitor.sh`, the three schedulers, and incident pickup.
+7. **M7: `stats`.** Then **migrate off singularity**, each step only after your OK:
    - remove `singularity@singularity` and its marketplace entry
-   - install the compound-engineering and factory plugins and run `/factory:init` in the 3 projects
+   - install compound-engineering and factory, and run `/factory:init` in the 3 projects
 
 ## Verification
 
-- M1 tests: validate, the ce-compound contract test, the hook-firing test from a git-source install, and the smoke tests above.
-- Bash tests:
-  - guard-bash blocks force-push, `--no-verify`, and deploy or rollback outside stage 7 or without approval
-  - test-guard blocks edits to frozen specs, config, fixtures and helpers
-  - subagent-stop blocks while checks fail, stops at its cap, and ignores other agents
-  - `contract-sync` flips `passes` only from reporter results
-  - `change-diff --hash` catches a reviewer writing outside memory
-  - `state.sh` resumes, locks, and enforces `budget_usd`
-- **End to end** on a sample Next.js app, feature "add a dark-mode toggle", run once at `depth: lite` and once at `full`:
-  - **Learning check:** a deliberate PRD comment ("no empty-state criterion") produces one appended line in `factory-prd-reviewer/MEMORY.md`, and a ce-compound final line recorded. The next feature run's prd-reviewer raises the same class of issue on its own.
-  - **Freeze check:** the test-reviewer rejects a deliberately weak test before the freeze. The implementer cannot edit a fixture after the freeze.
+- **M1 tests**, as listed above.
+- **Bash tests:**
+  - `guard-bash`: blocks force-push, `--no-verify`, and deploy or rollback outside stage 7 or without approval.
+  - `test-guard`:
+    - blocks edits to frozen tests, check-defining files and memory paths
+    - blocks Edit and Write from read-only roles, if `agent_type` is present
+    - allows a dependency named in the plan
+  - `subagent-stop`:
+    - a `package.json` script edit or a `testPathIgnorePatterns` change made through Bash fails the hash re-check
+    - blocks while checks fail, stops at its cap, and ignores other agents
+  - `run-checks`: reads only the snapshot.
+  - `contract-sync`:
+    - parses JUnit fixtures from Playwright, Vitest and Jest
+    - `AC-1` does not match `AC-10`
+    - a criterion with no tests stays false
+    - a suffixed tag is rejected
+  - `change-diff --hash`: catches a reviewer writing anywhere, including memory, and the change is reverted.
+  - `state.sh`:
+    - resume, lock and budget work
+    - `fold-memory` is idempotent and archives lines past the cap
+    - `spend` prices a fixture transcript correctly across cache tiers
+  - `ship.sh verify`: accepts a merge from `main` and the fold commit, and rejects any other commit.
+- **`claude plugin eval`** passes the seeded cases at each milestone, with a no-plugin baseline arm for the reviewers.
+- **End to end** on a sample Next.js app, with the feature "add a dark-mode toggle". Run it once at `depth: lite` and once at `full`, plus a second feature in parallel through `claude --worktree`: the two runs must use different ports and both PRs must merge cleanly.
+  - **Learning check:**
+    - A PRD comment ("no empty-state criterion") produces one calibration line in the history file.
+    - The line is folded into `factory-prd-reviewer/MEMORY.md` at stage 7, and a ce-compound final line is recorded.
+    - The next run's `prd-reviewer` raises the same class of issue on its own.
+  - **Freeze check:** `test-reviewer` rejects a deliberately weak test. After the freeze, the implementer cannot change a fixture, a `package.json` script or `.factory/config.yaml`, whether through Edit or through Bash.
   - **Stage 6:** one comment of each class (spec gap, defect, cosmetic) routes to stage 2, stage 5 and a direct fix respectively.
-  - **Stage 7** against a local "prod" (`docker compose`).
-  - **Stage 8:** a broken `/health` is caught by `monitor.sh` under launchd, then incident, rollback, back to 5, and a postmortem doc.
-- `runs.jsonl` shows the model and effort per agent, the spend per stage, and the ce-compound outcomes.
+  - **Stage 7:** the PR goes from draft to ready to merged, and deploys to a local "prod" run with `docker compose`.
+  - **Stage 8:**
+    - Under launchd, a broken `/health` is caught. The incident is picked up by the next local session, rolled back, sent back to stage 5, and gets a postmortem doc.
+    - A GitHub Actions run opens a `factory-incident` issue.
+- **History files** show the model and effort per agent, spend per stage, the compound-engineering version, and the ce-compound outcomes.
 
 ## Risks
 
-- **compound-engineering drift** (no stability policy; already renamed `mode:headless` and added the durable-bar gate in 3.x): the `~3.34` range, the contract test re-run on every upgrade, and parsing only the final line.
-- **Opus-everywhere cost:** low effort for implementation and retrieval, `budget_usd`, `limits.depth`, and per-stage spend in `stats`.
-- **Plugin hook reliability** (#105625, #86809): the M1 hook test plus the init workaround. The safety gates are the deploy guard and the test freeze.
-- **Open issues** to recheck at M1: #92750 (subagents receive the main auto-memory index) and #92716 (SubagentStop doesn't fire on TaskStop). The implementer runs in the foreground.
+- **compound-engineering drift.** It has no stability policy and has shipped 88 v3 releases since 2026-04-22.
+  - Mitigations: the floor, the contract test whenever the version changes, parsing only the final line, and the version recorded in history.
+  - A true pin needs upstream `--v` tags or a fork.
+- **Cost of Opus everywhere.**
+  - Mitigations: low effort for code and retrieval, `budget_usd`, and per-stage spend read from transcripts.
+  - Estimates ignore fast mode and US-only inference.
+- **Plugin hooks may not fire.**
+  - The documented causes are an invalid `hooks.json`, a plugin-name collision, wrong event-name case, and the `disableAllHooks` or `allowManagedHooksOnly` settings. `/factory:init` checks the last three.
+  - The M1 hook test runs from both source types.
+- **The guards are seatbelts.** In singularity's words, `guard-bash` is "a seatbelt against mistakes, not a security boundary". The same holds for `test-guard` against writes made through Bash. The hash re-checks at SubagentStop and after each review batch are the actual mechanism, and they detect rather than prevent.
+- **Agents gaming the tests (E9, E14).** Mitigations: freezing both lists, the harness setting `passes`, the red check, and a freeze eval case.
+- **Open issues to recheck at M1:**
+  - #92750: subagents receive the main auto-memory index and the skill listing; `omitClaudeMd: true` is the noted workaround.
+  - #92716: SubagentStop doesn't fire on TaskStop. The implementer runs in the foreground, and spawns without a price are reported.
+  - #103308.
 
-## Review traceability (`docs/PRD-review.md`)
+## Review traceability (`docs/PRD-review-v2.md`)
 
-| Review item | Change |
+| Review item | Change in v3 |
 |---|---|
-| 1.1 model evidence misattributed | Models section rewritten; implementer opus · low with re-runs at high; Sonnet only as an override justified by stats; `opusplan` no longer cited as cost guidance |
-| 1.2 cloud routines can't run plugin skills | Pure-shell `monitor.sh`, three schedulers, committed `factory-monitor` skill, 15-minute interval documented as local or CI only |
-| 1.3 a floor is not a pin | `~3.34`, M1 contract test, parse only the final line, upgrade procedure |
-| 2.1 tests unchecked before freeze | test-reviewer, the harness flips `passes`, freeze extended to config, fixtures and helpers |
-| 2.2 QA thresholds | Per-criterion pass or fail with evidence, any fail blocks, the implementer doesn't see rubrics, false negatives logged |
-| 2.3 stage 6 always looped to 2 | The triager routes by class |
-| 2.4 Fable security lens | Opus high or xhigh by default; Fable opt-in, with the retention caveat |
-| 2.5, 2.6 judge and Misevolve wording | Reworded; "reference, not rules" line; one-line appends |
-| 2.7 shared MEMORY.md | One agent per lens; challenger has no memory |
-| 2.8 memory gotchas | The spike became a smoke test; `factory-<agent>` path; no worktree isolation; Read, Write and Edit in tools |
-| 2.9 SubagentStop | Anchored matcher, explicit timeout, fast checks only, under the 8-continuation cap, ≥ 2.1.311 |
-| 2.10 plugin hooks | Git-source install test plus the #105625 workaround |
-| 2.11 `mcpServers` ignored | qa-evaluator uses `playwright-cli` |
-| 2.12 cost cap | `limits.budget_usd` and spend per stage |
-| 2.13 Haiku at low | The monitor agent was removed; checks are pure shell |
-| 2.14 refresh cadence | Triggered by the recommendation line; the counter is a ceiling |
-| 2.15 ce-compound auto-trigger | `disallowedTools` on all non-orchestrator agents; explicit Skill tool calls |
-| 2.16 effort and cache | Fresh subagent per effort change; `xhigh` acknowledged |
-| 2.17 evaluator overhead | `limits.depth` set to lite, full or auto |
-| 2.18 learnings-researcher is a port | Stated as a port, pinned to commit `64b74f2`, no enum validation |
-| §3 citations | Playwright 1.64.x and the Screencast API; `@AC-1\b`; EARS from Kiro only; Puppeteer in effective-harnesses; healer excluded; WebM to H.264; two-track schema; "runs on 14 agent hosts" |
+| 1.1 `~3.34` can't pin | Floor `>=3.21.1`. The contract test runs at init and whenever the version changes. The resolved version goes in history. M1 adds a resolution test and a negative test. |
+| 1.2 the `Skill(...)` specifier removes the whole tool | `disallowedTools: ["Skill"]` plus `skills:` preloading. The smoke test now checks only that ce-compound can't be invoked. |
+| 1.3 #105625 and #86809 misread | No settings-level hooks; both citations removed. The hook test runs from git and directory sources. Init checks the documented failure causes. |
+| 1.4 the check definitions weren't frozen | A check-defining list, hashed at the freeze. A checks snapshot. SubagentStop re-checks hashes first. Dependencies named in the plan are the one exception. |
+| 1.5 the oracle was written at low effort | `test-author` at opus · high; code at low with re-runs at high; `stats` per effort level. This also fixes a v2 defect: SubagentStop would have demanded green unit tests while the (a) tests were red by design. |
+| 2.1 rubric-hiding citation inverted | Now a design choice with no citation, plus the `learning.rubric_visible` experiment. |
+| 2.2 stretched quotes | "Cascade" now supports a product-level PRD. The QA fix is the tuning loop. *Harness design* is no longer cited for model choices. |
+| 2.3 "every case measured" | Qualifier "on earlier models" added, plus the Haiku-subagent datapoint (E2). |
+| 2.4 fresh-spawn rationale | Now: a clean context that starts from the failure report (E6). The prompt-cache claim is removed. |
+| 2.5 evidence precision | A new Evidence table with class and n for every claim. CodeRabbit, Bug Hunt Bench and The New Stack corrected. Fable's flaky-test behaviour noted. |
+| 2.6 wrong commit | Pinned to `f2762dd` and blob `ab60b70…`, verified on 2026-11-02, with a drift test. |
+| 3.1 memory-write rule unenforced | Only the harness writes memory, enforced by the hook and the hash check. Auto-enabled Read, Write and Edit are now stated as the reason. `factory-<agent>` stays a smoke test. |
+| 3.2 `contract-sync` tags | JUnit XML from every runner; `AC-\d+\b` matching; at least one test, all passing; no suffixed tags. |
+| 3.3 e2e red standard | An e2e test starts with an explicit presence check. |
+| 3.4 parallel runs | One history file per run. Calibration is folded once at stage 7, after updating from `main`. A port per run. The worktree location is stated. |
+| 3.5 nobody opens the PR | A draft PR at the end of stage 4, marked ready on approval, with its number in state. `ship.sh verify` at stage 7. |
+| 3.6 CI can't run the triager | CI only detects and files (a GitHub issue), with no `claude -p` and no Anthropic credential. Triage happens in local sessions. |
+| 3.7 spend source and prices | A SubagentStop spend hook reads `agent_transcript_path`. Cache tiers are in the price table. |
+| 3.8 no agent evals | `evals/` with `claude plugin eval`: seeded cases, run per milestone and on every prompt change. `plugin details` runs at M1. |
+| 3.9 citation check not relevant to feature PRDs | Made conditional. The rubric starts with testability and state coverage. |
+| 3.10 v1 no longer exists | `git init`; history restored from the transcript into `docs/history/`. |
+| 3.11 effort control is simpler now | The Agent tool's `effort` and `model` parameters, and a warning about `CLAUDE_CODE_EFFORT_LEVEL`. |
+| 3.12 stage cost allocation | `stats` reports spend by stage before anyone tunes `depth`. |
+| §4 citations | Playwright ≥ 1.59 for Screencast, `video.show: {actions, test}` (verified on the TestOptions page), VP9, ffmpeg described as factory's practice. `@playwright/cli`. Docker tag variants. #103308 reworded. Fable's ZDR wording. Haiku dropped as unused. Opus default effort `medium`. Schema details. The durable bar shipped in v3.25.0 (#1624), recorded in GitHub Releases. Auto-trigger is gated, and moot once Skill is disallowed. The ablation criterion. |
+| §5 | The seatbelt sentence added to Risks. |
 
 ## Sources
 
-- Anthropic model guidance:
-  - cost and intelligence: https://platform.claude.com/docs/en/about-claude/models/optimizing-for-cost-and-intelligence
-  - effort: https://platform.claude.com/docs/en/build-with-claude/effort
-  - choosing a model: https://platform.claude.com/docs/en/about-claude/models/choosing-a-model
-  - data retention: https://platform.claude.com/docs/en/manage-claude/api-and-data-retention
+- Anthropic platform:
+  - https://platform.claude.com/docs/en/about-claude/models/optimizing-for-cost-and-intelligence
+  - https://platform.claude.com/docs/en/build-with-claude/effort
+  - https://platform.claude.com/docs/en/about-claude/models/choosing-a-model
+  - https://platform.claude.com/docs/en/about-claude/pricing
+  - https://platform.claude.com/docs/en/manage-claude/api-and-data-retention
 - Anthropic engineering:
-  - harness design: https://www.anthropic.com/engineering/harness-design-long-running-apps
-  - effective harnesses: https://www.anthropic.com/engineering/effective-harnesses-for-long-running-agents
-  - building effective agents: https://www.anthropic.com/engineering/building-effective-agents
+  - https://www.anthropic.com/engineering/harness-design-long-running-apps
+  - https://www.anthropic.com/engineering/effective-harnesses-for-long-running-agents
 - Claude Code docs:
   - subagents: https://code.claude.com/docs/en/sub-agents.md
-  - memory: https://code.claude.com/docs/en/memory.md
-  - plugin components: https://code.claude.com/docs/en/plugins/components.md
-  - plugin manifest: https://code.claude.com/docs/en/plugins/manifest-reference.md
   - hooks: https://code.claude.com/docs/en/hooks.md
+  - memory: https://code.claude.com/docs/en/memory.md
   - skills: https://code.claude.com/docs/en/skills.md
+  - plugins:
+    - https://code.claude.com/docs/en/plugins/dependencies.md
+    - https://code.claude.com/docs/en/plugins/loading.md
+    - https://code.claude.com/docs/en/plugins/troubleshooting.md
+    - https://code.claude.com/docs/en/plugins/manifest-reference.md
+    - https://code.claude.com/docs/en/plugins/marketplace-reference.md
   - scheduled tasks: https://code.claude.com/docs/en/scheduled-tasks.md
-  - routines: https://code.claude.com/docs/en/routines.md
   - cloud environments: https://code.claude.com/docs/en/cloud-environments.md
   - CLI reference: https://code.claude.com/docs/en/cli-reference.md
-- compound-engineering:
-  - repo: https://github.com/EveryInc/compound-engineering-plugin
-  - ce-compound: https://github.com/EveryInc/compound-engineering-plugin/blob/main/skills/ce-compound/SKILL.md
-  - refresh guide: https://github.com/EveryInc/compound-engineering-plugin/blob/main/docs/guides/ce-compound-refresh.md
+  - changelog: https://github.com/anthropics/claude-code/blob/main/CHANGELOG.md
+  - issues #92716, #92750 and #103308
+- compound-engineering: https://github.com/EveryInc/compound-engineering-plugin
+  - `skills/ce-compound/{SKILL.md, references/report.md, references/modes.md, references/schema.yaml}`
+  - learnings-researcher at `f2762dd`
+  - GitHub Releases
+- Playwright:
+  - https://playwright.dev/docs/release-notes
+  - https://playwright.dev/docs/api/class-screencast
+  - https://playwright.dev/docs/api/class-testoptions
+  - https://playwright.dev/docs/test-reporters
+  - https://playwright.dev/docs/docker
+  - https://playwright.dev/docs/test-agents
+  - https://github.com/microsoft/playwright-cli
+- Kiro EARS: https://kiro.dev/docs/specs/feature-specs/
 - Review evidence:
   - CodeRabbit: https://www.coderabbit.ai/blog/opus-5-5-model-review
   - Bug Hunt Bench: https://github.com/phuryn/bug-hunt-bench
   - The New Stack: https://thenewstack.io/claude-opus-5-5-vs-fable-5-1/
-  - Review Rarely Beats the Stronger Model: https://arxiv.org/abs/2610.15897
-  - LLMs Cannot Self-Correct Reasoning Yet: https://arxiv.org/abs/2310.01798
-  - Your Agent May Misevolve: https://arxiv.org/abs/2509.26354
-  - METR on reward hacking: https://metr.org/blog/2025-06-05-recent-reward-hacking
-  - Natural Emergent Misalignment from Reward Hacking: https://arxiv.org/abs/2511.18397
-- Playwright:
-  - release notes: https://playwright.dev/docs/release-notes
-  - test annotations: https://playwright.dev/docs/test-annotations
-  - test agents (healer excluded): https://playwright.dev/docs/test-agents
-  - playwright-cli: https://github.com/microsoft/playwright-cli
-- Kiro EARS: https://kiro.dev/docs/specs/feature-specs/
+  - Zhang & Shrestha: https://arxiv.org/abs/2610.15897
+  - Huang et al.: https://arxiv.org/abs/2310.01798
+  - *Your Agent May Misevolve*: https://arxiv.org/abs/2509.26354
+  - memory poisoning: https://arxiv.org/abs/2512.16962 and https://arxiv.org/abs/2607.06595
+  - METR: https://metr.org/blog/2025-06-05-recent-reward-hacking
+  - https://arxiv.org/abs/2511.18397
