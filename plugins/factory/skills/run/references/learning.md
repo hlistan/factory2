@@ -17,7 +17,13 @@ fixed or escalated; a stage 6 issue resolved; an incident postmortem. One learni
 for lessons that generalise beyond this feature:
 
 Skill tool → `compound-engineering:ce-compound` with arguments
-`mode:non-interactive depth:<learning.compound_depth> "<context: what happened, the evidence, the fix, and the lesson>"`
+`mode:non-interactive depth:<learning.compound_depth> "<context>"`
+
+ce-compound has a durability bar: it skips a lesson that the final code already makes obvious, or that
+only restates the diff. So the context must carry what the code doesn't show: the symptom as first
+seen, what was tried first and why it was wrong, how the cause was found, the fix with commit SHAs and
+the evidence it works, and the lesson phrased as what to check next time. A `Documentation skipped` is a
+normal outcome (record it and move on); don't retry with inflated wording.
 
 Parse the result:
 - Only the **final line** counts: exactly `Documentation complete` or `Documentation skipped` (the header

@@ -2,7 +2,7 @@
 name: init
 description: Set up factory in this project - check Claude Code, hooks, memory and compound-engineering, run the ce contract test, write .factory/config.yaml for the project's stack, and install the monitor scheduler. Run once per project, and again after upgrading factory or compound-engineering.
 disable-model-invocation: true
-allowed-tools: Bash(bash ${CLAUDE_PLUGIN_ROOT}/scripts/*) Bash(bash ${CLAUDE_PLUGIN_ROOT}/tests/ce-contract.sh*) Read Glob Grep
+allowed-tools: Bash(bash ${CLAUDE_PLUGIN_ROOT}/scripts/*) Bash(bash ${CLAUDE_PLUGIN_ROOT}/scripts/ce-contract.sh*) Read Glob Grep
 ---
 
 # /factory:init
@@ -16,7 +16,7 @@ allowed-tools: Bash(bash ${CLAUDE_PLUGIN_ROOT}/scripts/*) Bash(bash ${CLAUDE_PLU
    any `FAIL` line and give the fix it prints (for compound-engineering:
    `claude plugin marketplace add EveryInc/compound-engineering-plugin` and
    `claude plugin install compound-engineering@compound-engineering-plugin`).
-2. **Contract test.** `bash ${CLAUDE_PLUGIN_ROOT}/tests/ce-contract.sh` (about a minute, capped spend).
+2. **Contract test.** `bash ${CLAUDE_PLUGIN_ROOT}/scripts/ce-contract.sh` (about a minute, capped spend).
    On a pass it records the version in `${CLAUDE_PLUGIN_DATA}/ce-contract.json`. On a failure, say that
    learning capture is off until it passes, and continue.
 3. **compound-engineering setup.** If `.compound-engineering/config.yaml` is missing, run the Skill

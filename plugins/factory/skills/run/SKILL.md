@@ -19,7 +19,7 @@ fail from exit codes. Arguments: `$ARGUMENTS`.
 ## Start or resume
 1. No `.factory/config.yaml` → stop and tell the user to run `/factory:init`.
 2. If the session-start context said the compound-engineering contract test hasn't passed for the
-   installed version, run `bash ${CLAUDE_PLUGIN_ROOT}/tests/ce-contract.sh` first. If it fails, continue
+   installed version, run `bash ${CLAUDE_PLUGIN_ROOT}/scripts/ce-contract.sh` first. If it fails, continue
    with `learning.enabled` treated as false for capture and say so once.
 3. The first argument is a **slug** if `.factory/runs/<arg>/state.json` exists: `bash $S/state.sh resume
    <slug>`, read `bash $S/state.sh get .` and continue at the recorded stage (or `--from <n>`).
