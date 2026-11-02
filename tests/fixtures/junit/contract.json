@@ -1,0 +1,8 @@
+{ "feature": "dark-mode", "criteria": [
+  { "id": "AC-1", "text": "WHEN the user clicks the toggle THE SYSTEM SHALL switch the theme", "test_ids": [], "passes": false },
+  { "id": "AC-2", "text": "toggle", "test_ids": [], "passes": false },
+  { "id": "AC-3", "text": "empty state", "test_ids": [], "passes": false },
+  { "id": "AC-4", "text": "menu item", "test_ids": [], "passes": false },
+  { "id": "AC-10", "text": "persists", "test_ids": [], "passes": false },
+  { "id": "AC-11", "text": "untested", "test_ids": [], "passes": false }
+] }

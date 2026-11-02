@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuites name="vitest tests">
+  <testsuite name="src/theme.test.ts">
+    <testcase classname="src/theme.test.ts" name="theme &gt; reads the stored value @AC-1" time="0.01"></testcase>
+    <testcase classname="src/theme.test.ts" name="theme &gt; toggles @AC-2" time="0.0"><skipped/></testcase>
+  </testsuite>
+</testsuites>

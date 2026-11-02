@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuites name="playwright" tests="3" failures="1">
+  <testsuite name="e2e/dark.spec.ts" tests="3">
+    <testcase name="dark mode › toggles the theme @AC-1" classname="e2e/dark.spec.ts" time="1.2"></testcase>
+    <testcase name="dark mode › persists the choice @AC-10" classname="e2e/dark.spec.ts" time="2.0">
+      <failure message="expected dark" type="FAILURE">Error: expected dark</failure>
+    </testcase>
+    <testcase name="dark mode › empty state @AC-3-extra" classname="e2e/dark.spec.ts" time="0.4"></testcase>
+  </testsuite>
+</testsuites>

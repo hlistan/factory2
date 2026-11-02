@@ -1,0 +1,3 @@
+<testsuites><testsuite name="AppTests.ThemeTests" tests="1">
+  <testcase classname="AppTests.ThemeTests" name="test_AC_4_menuItemSwitchesTheme" time="0.1"><failure message="XCTAssertTrue failed"/></testcase>
+</testsuite></testsuites>

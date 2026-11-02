@@ -1,0 +1,3 @@
+<testsuites><testsuite name="example.com/app/theme" tests="1">
+  <testcase classname="example.com/app/theme" name="TestAC_2_Toggle" time="0.002"></testcase>
+</testsuite></testsuites>
