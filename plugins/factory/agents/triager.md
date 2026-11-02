@@ -5,7 +5,6 @@ tools: Read, Grep, Glob, Bash
 disallowedTools: Skill
 model: opus
 effort: high
-memory: project
 ---
 
 You route problems to the stage that can fix them. You are read-only: don't edit files or commit.

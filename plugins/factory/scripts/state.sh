@@ -1,7 +1,10 @@
 #!/usr/bin/env bash
 # factory run state. The orchestrator (/factory:run) calls these; hooks read the same files.
-#   state.sh start <slug>            begin a run in this checkout: state.json, lock, port, history file
-#   state.sh resume <slug>           make an existing run the active one
+#   state.sh start <slug> [--effort-env-ok]   begin a run in this checkout: state.json, lock, port, history
+#   state.sh resume <slug> [--effort-env-ok]  make an existing run the active one
+#                                    Both exit 3 while CLAUDE_CODE_EFFORT_LEVEL is set: it overrides every
+#                                    agent's effort, even the Agent tool's parameter. --effort-env-ok (after
+#                                    the user agreed) runs anyway and records the level in state.effort_env.
 #   state.sh end                     release the checkout (the run's files stay)
 #   state.sh active                  print the active slug (exit 1 if none)
 #   state.sh get <jq filter>         read state.json             state.sh set <jq expression> [jq args]
@@ -33,6 +36,13 @@ factory_need git jq python3
 root="$FACTORY_ROOT_DIR"
 cmd="${1:-}"; [ $# -gt 0 ] && shift
 runs="$root/.factory/runs"
+
+effort_env_gate() { # [--effort-env-ok]: refuse to start or resume while CLAUDE_CODE_EFFORT_LEVEL is set
+  [ -n "${CLAUDE_CODE_EFFORT_LEVEL:-}" ] || return 0
+  [ "${1:-}" = "--effort-env-ok" ] && return 0
+  echo "factory: CLAUDE_CODE_EFFORT_LEVEL=$CLAUDE_CODE_EFFORT_LEVEL overrides the effort of every agent spawn, including the Agent tool's effort parameter, so factory's per-role effort (implementer low, re-runs high) would be ignored. Unset it and restart Claude Code, or, if the user agrees to run every agent at that level, repeat with --effort-env-ok." >&2
+  exit 3
+}
 
 slug_ok() { printf '%s' "$1" | grep -E -q '^[a-z0-9][a-z0-9._-]{0,63}$'; }
 need_active() { slug="$(factory_active_slug)"; [ -n "$slug" ] || { echo "factory: no active run in this checkout (state.sh start <slug>)" >&2; exit 1; }; run="$runs/$slug"; }
@@ -91,6 +101,7 @@ SPEND_TOTAL="($SPEND_BY_STAGE) | [.[]] | add // 0"
 
 case "$cmd" in
   start)
+    effort_env_gate "${2:-}"
     slug="${1:-}"; slug_ok "$slug" || { echo "factory: slug must be lowercase letters, digits, . _ - (max 64)" >&2; exit 2; }
     cur="$(factory_active_slug)"
     if [ -n "$cur" ] && [ "$cur" != "$slug" ]; then echo "factory: run '$cur' is active in this checkout; finish it, or use claude --worktree for a parallel run" >&2; exit 1; fi
@@ -117,13 +128,16 @@ case "$cmd" in
       }' > "$hf"
     fi
     printf '%s\n' "$slug" > "$runs/active"
+    state_update '.effort_env = (if $e == "" then null else $e end)' --arg e "${CLAUDE_CODE_EFFORT_LEVEL:-}"
     echo "factory: run '$slug' active (port $(jq -r .port "$run/state.json"))"
     ;;
   resume)
+    effort_env_gate "${2:-}"
     slug="${1:-}"; slug_ok "$slug" && [ -f "$runs/$slug/state.json" ] || { echo "factory: no run '$slug'" >&2; exit 1; }
     cur="$(factory_active_slug)"
     if [ -n "$cur" ] && [ "$cur" != "$slug" ]; then echo "factory: run '$cur' is active in this checkout" >&2; exit 1; fi
     printf '%s\n' "$slug" > "$runs/active"
+    state_update '.effort_env = (if $e == "" then null else $e end)' --arg e "${CLAUDE_CODE_EFFORT_LEVEL:-}"
     echo "factory: run '$slug' resumed at stage $(jq -r .stage "$runs/$slug/state.json") ($(jq -r .phase "$runs/$slug/state.json"))"
     ;;
   end) rm -f "$runs/active"; echo "factory: checkout released" ;;
@@ -152,9 +166,19 @@ case "$cmd" in
     ;;
   baseline)
     need_active
-    bash "$FACTORY_SCRIPTS/run-checks.sh" --set all --save-failures "$run/baseline-failures" --tail 5 >/dev/null 2>&1
+    # the fast set is timed: the implementer's stop gate runs it under a limit of 840 s
+    t0="$(date +%s)"
+    bash "$FACTORY_SCRIPTS/run-checks.sh" --set fast --save-failures "$run/baseline-failures.fast" --tail 5 >/dev/null 2>&1
+    fast_s=$(( $(date +%s) - t0 ))
+    bash "$FACTORY_SCRIPTS/run-checks.sh" --set slow --save-failures "$run/baseline-failures.slow" --tail 5 >/dev/null 2>&1
+    cat "$run/baseline-failures.fast" "$run/baseline-failures.slow" 2>/dev/null > "$run/baseline-failures"
+    rm -f "$run/baseline-failures.fast" "$run/baseline-failures.slow"
+    state_update '.fast_checks_seconds = ($s | tonumber)' --arg s "$fast_s"
     n="$(grep -c . "$run/baseline-failures" 2>/dev/null)"; n="${n:-0}"
     echo "factory: baseline taken; $n check(s) already failing: $(tr '\n' ' ' < "$run/baseline-failures" 2>/dev/null)"
+    if [ $((fast_s * 2)) -gt 840 ]; then
+      echo "factory: WARNING the fast checks took ${fast_s}s, more than half the stop gate's 840 s limit; move slow checks from checks.fast to checks.slow, or the gate will time out and let the implementer stop unchecked"
+    fi
     ;;
   freeze)
     need_active; cj="$(config_json_file)"

@@ -108,4 +108,18 @@ t_hasnt "$OUT" "contract test" "quiet once the version passed"
 R2="$(new_repo)"
 FACTORY_ROOT="$R2" hook "$S/session-start.sh" '{}'
 t_eq "$OUT" "" "silent in a project without factory"
+# CLAUDE_CODE_EFFORT_LEVEL overrides the Agent tool's effort parameter: start/resume refuse unless told
+R3="$(new_repo)"
+CLAUDE_CODE_EFFORT_LEVEL=high FACTORY_ROOT="$R3" run bash "$S/state.sh" start eff
+t_code 3 "start refuses while CLAUDE_CODE_EFFORT_LEVEL is set"
+t_has "$ERR" "--effort-env-ok" "says how to proceed"
+[ ! -f "$R3/.factory/runs/eff/state.json" ] && t_ok || t_fail "a refused start created state"
+CLAUDE_CODE_EFFORT_LEVEL=high FACTORY_ROOT="$R3" run bash "$S/state.sh" start eff --effort-env-ok
+t_code 0 "--effort-env-ok starts it"
+t_eq "$(jq -r .effort_env "$R3/.factory/runs/eff/state.json")" "high" "records the level"
+CLAUDE_CODE_EFFORT_LEVEL=low FACTORY_ROOT="$R3" run bash "$S/state.sh" resume eff
+t_code 3 "resume refuses too"
+FACTORY_ROOT="$R3" run bash "$S/state.sh" resume eff
+t_code 0 "resume without the variable"
+t_eq "$(jq -r .effort_env "$R3/.factory/runs/eff/state.json")" "null" "clears the recorded level"
 t_done

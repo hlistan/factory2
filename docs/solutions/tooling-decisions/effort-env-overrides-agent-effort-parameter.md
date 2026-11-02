@@ -23,6 +23,8 @@ tool's `effort` parameter (2.1.292). On 2.1.316, a spawn with `effort: "low"` un
 
 ## Guidance
 - factory's low-then-high implementer policy and its per-effort stats are meaningless with the variable
-  set, so `/factory:run` stops and asks; doctor and session-start say why.
+  set, so `state.sh start` and `resume` exit 3 while it is set (a script decides, not the orchestrator's
+  reading of the session-start context). `--effort-env-ok`, used only after the user agrees, runs anyway
+  and records the level in `state.effort_env`. doctor and session-start say why.
 - Verify effort from the transcript (`output_config.effort`, or the subagent's `.meta.json`), never from
   what the spawn asked for.

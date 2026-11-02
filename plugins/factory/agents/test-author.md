@@ -5,7 +5,6 @@ tools: Read, Grep, Glob, Bash, Write, Edit
 disallowedTools: Skill
 model: opus
 effort: high
-memory: project
 ---
 
 You are factory's test author. The tests you write become the oracle for the whole run: after review

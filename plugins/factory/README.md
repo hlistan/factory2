@@ -63,7 +63,9 @@ harness, not an agent, decides that a criterion passes.
 - Deploy and rollback commands are blocked outside an approved stage 7.
 - Agents never write their own memory. The orchestrator records one calibration line per miss in the
   run's committed history file, and folds the lines into each agent's `MEMORY.md` once, at stage 7,
-  where they are reviewed in the PR. Memory is presented as reference material, not rules.
+  where they are reviewed in the PR. Memory is presented as reference material, not rules. A
+  SubagentStart hook loads each agent's `MEMORY.md` (first 200 lines or 25 KB), so this works whether
+  Claude Code's auto memory is on or off; agents use no `memory:` frontmatter.
 
 ## Credits
 

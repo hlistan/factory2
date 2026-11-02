@@ -10,6 +10,12 @@
 # On a failure it exits 2 and Claude Code keeps the implementer working with the message as its next
 # instruction. After checks.stop_retries blocks for one agent id (default 3) it lets the agent stop; the
 # orchestrator's own checks then report what still fails. Claude Code also caps continuations at 8.
+# Time limit: Claude Code cancels a hook at its `timeout` (900 s in hooks.json) and discards its output,
+# and a cancelled SubagentStop hook lets the agent stop unchecked (observed on 2.1.316, also with
+# `onFailure: block`). So the checks run under this script's own limit of 840 s (FACTORY_GATE_BUDGET
+# overrides it for tests). When the limit is hit
+# the checks are killed, the stop is let through, and it is recorded (stop-gate.log, state.gate_timeouts)
+# for the orchestrator, which re-runs every check itself after each implementer pass anyway.
 # Every other agent, an empty agent_type, and a checkout with no active run pass straight through.
 set -u
 input="$(cat)"
@@ -55,9 +61,18 @@ if [ "$(jq -r '.frozen // false' "$run/state.json")" = "true" ]; then
   [ $? -eq 1 ] && block freeze "$out"
 fi
 
+budget="${FACTORY_GATE_BUDGET:-840}"   # hooks.json timeout 900 s, minus 60 s for the freeze check and reporting
+case "$budget" in ''|*[!0-9]*) budget=840 ;; esac
 known=()
 [ -f "$run/baseline-failures" ] && known=(--known-failures "$run/baseline-failures")
-out="$(bash "$FACTORY_SCRIPTS/run-checks.sh" --set fast --tail 30 "${known[@]+"${known[@]}"}" 2>&1)"
-[ $? -eq 1 ] && block checks "$out"
+out="$(factory_py "$FACTORY_LIB/timeout.py" "$budget" bash "$FACTORY_SCRIPTS/run-checks.sh" --set fast --tail 30 "${known[@]+"${known[@]}"}" 2>&1)"
+code=$?
+if [ "$code" -eq 124 ]; then
+  printf '%s\t%s\t%s\t-\ttimeout after %ss\n' "$(now_utc)" "$agent" "$id" "$budget" >> "$run/stop-gate.log"
+  state_update '.gate_timeouts = ((.gate_timeouts // 0) + 1)' 2>/dev/null
+  echo "factory: the fast checks took longer than ${budget}s; the stop gate let the implementer finish unchecked. The orchestrator re-runs the checks." >&2
+  rm -f "$counter"; exit 0
+fi
+[ "$code" -eq 1 ] && block checks "$out"
 rm -f "$counter"
 exit 0

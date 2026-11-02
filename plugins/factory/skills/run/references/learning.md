@@ -1,7 +1,8 @@
 # Learning capture
 
 Three layers: compound-engineering docs (project knowledge), per-agent MEMORY.md calibration lines
-(written only by the harness), and Claude Code's auto memory (built in). Skip capture entirely when
+(written only by the harness, loaded into each agent by factory's SubagentStart hook, so it works with
+Claude Code's auto memory on or off), and Claude Code's auto memory (built in, optional). Skip capture entirely when
 `learning.enabled` is false.
 
 ## Calibration lines (per-agent memory)

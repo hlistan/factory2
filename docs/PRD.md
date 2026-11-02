@@ -503,3 +503,23 @@ Verified by `tests/live/deps.sh`, `tests/live/hooks.sh`, `plugins/factory/script
 - **#92750 is still open** (subagents receive the auto-memory index and skill listing). Not worked
   around in M1: factory's agents can't invoke skills, and the extra context is read-only.
 - First eval case (`prd-reviewer-empty-state`, one run per arm): with 1.00, without 0.25. Directional.
+
+## M1 follow-up fixes (2026-11-02)
+
+- **Agent memory no longer depends on auto memory.** The `memory: project` frontmatter is removed from
+  all agents; a SubagentStart hook (`memory-inject.sh`, matcher `^factory:`) loads
+  `.claude/agent-memory/factory-<agent>/MEMORY.md` (200 lines / 25 KB) as `additionalContext`. Works
+  with `autoMemoryEnabled: false` (live-verified), gives read-only agents no auto-enabled Write/Edit,
+  and sidesteps #103308. doctor downgrades auto memory to a warning. Supersedes the memory row of
+  "Self-learning: adopted layers" and the "Memory rules" list.
+- **The stop gate has its own time limit.** A timed-out SubagentStop hook lets the implementer stop
+  unchecked, even with `onFailure: "block"` (probed live). `subagent-stop.sh` runs the fast checks
+  under 840 s (`lib/timeout.py`, kills the process group), then lets the stop through and records
+  `gate_timeouts`; the orchestrator's own re-run of all checks is the backstop. `state.sh baseline`
+  times the fast set and warns past 420 s.
+- **`CLAUDE_CODE_EFFORT_LEVEL` is refused by the script**, not only by the orchestrator: `state.sh
+  start|resume` exit 3 while it is set; `--effort-env-ok` after the user agrees, recorded as
+  `state.effort_env`.
+- **Hooks from the git install** fire live in `tests/live/deps.sh` when `ANTHROPIC_API_KEY` or
+  `CLAUDE_CODE_OAUTH_TOKEN` is set (the isolated config has no login otherwise); without one the
+  byte-identity check remains the evidence.

@@ -5,7 +5,6 @@ tools: Read, Grep, Glob, Bash, Write, Edit
 disallowedTools: Skill
 model: opus
 effort: high
-memory: project
 skills:
   - prd-format
 ---

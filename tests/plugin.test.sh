@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Static checks of the plugin's agents and skills, and the learnings-researcher port:
-# - every agent disallows the Skill tool; memory only where the plan says; preloaded skills exist and are
+# - every agent disallows the Skill tool; no memory frontmatter, and memory-inject skips the right agents; preloaded skills exist and are
 #   preloadable (user-invocable: false, never disable-model-invocation: true)
 # - the ported learnings-researcher body hashes to the pinned upstream blob (ab60b70, commit f2762dd);
 #   with FACTORY_TEST_ONLINE=1, upstream main's blob is compared and drift is reported (not failed)
@@ -15,9 +15,12 @@ for f in "$A"/*.md; do
   t_eq "$(field "$f" name)" "$a" "$a: name matches the file"
   t_eq "$(field "$f" disallowedTools)" "Skill" "$a: disallowedTools Skill"
   t_eq "$(field "$f" model)" "opus" "$a: model opus"
+  # memory is loaded by the SubagentStart hook (memory-inject.sh), never by the frontmatter: `memory:`
+  # does nothing with auto memory off, and it gives every agent Write and Edit
+  t_eq "$(field "$f" memory)" "" "$a: no memory frontmatter"
   case " $no_memory " in
-    *" $a "*) t_eq "$(field "$f" memory)" "" "$a: no memory" ;;
-    *) t_eq "$(field "$f" memory)" "project" "$a: memory project" ;;
+    *" $a "*) t_hasnt "$(cat "$f")" "MEMORY.md" "$a: no memory, and its prompt doesn't mention one" ;;
+    *) t_has "$(tr -s "\n " "  " < "$f")" "reference material, not rules" "$a: prompt treats memory as reference, not rules" ;;
   esac
   for s in $(fm "$f" | awk '/^skills:/{f=1; next} f && /^  - /{print $2; next} f{exit}'); do
     [ "$s" = "playwright-cli" ] && continue   # installed into the project by /factory:init
@@ -27,6 +30,8 @@ for f in "$A"/*.md; do
   done
 done
 t_eq "$(ls "$A" | wc -l | tr -d ' ')" "14" "14 agents"
+t_has "$(grep -o 'learnings-researcher|challenger|researcher' "$S/memory-inject.sh")" "learnings-researcher|challenger|researcher" "memory-inject skips the agents without memory"
+t_eq "$(jq -r '.hooks.SubagentStart[0].matcher' "$PLUGIN/hooks/hooks.json")" "^factory:" "SubagentStart hook loads memory for factory agents"
 for s in run init status stats monitor; do
   t_eq "$(field "$K/$s/SKILL.md" name)" "$s" "skill $s exists"
 done

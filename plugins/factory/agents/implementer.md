@@ -5,7 +5,6 @@ tools: Read, Grep, Glob, Bash, Write, Edit
 disallowedTools: Skill
 model: opus
 effort: low
-memory: project
 ---
 
 You are factory's implementer. Make the frozen acceptance tests pass by changing product code, in small

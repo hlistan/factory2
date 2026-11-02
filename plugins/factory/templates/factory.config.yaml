@@ -18,7 +18,7 @@ checks:
   # Examples: vitest --reporter=junit --outputFile=$FACTORY_REPORTS/unit.xml · jest (jest-junit) ·
   # playwright --reporter=junit (PLAYWRIGHT_JUNIT_OUTPUT_FILE is set) · gotestsum --junitfile
   # $FACTORY_REPORTS/unit.xml · swift test --xunit-output $FACTORY_REPORTS/unit.xml · pytest --junitxml=...
-  fast:                     # SubagentStop runs these after every implementer turn (900 s hook timeout)
+  fast:                     # SubagentStop runs these after every implementer turn (840 s limit)
     lint: npm run lint
     typecheck: npm run typecheck
     unit: "npx vitest run --reporter=junit --outputFile=$FACTORY_REPORTS/unit.xml"

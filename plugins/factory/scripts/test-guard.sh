@@ -2,7 +2,7 @@
 # PreToolUse hook on Edit|Write|NotebookEdit while a factory run is active. Exit 2 blocks the edit and
 # shows the message to the agent. In order:
 #   1. Agent memory (.claude/agent-memory/**) is written only by the harness (state.sh fold-memory),
-#      never by an agent: memory agents get Write and Edit automatically, so this is enforced here.
+#      never by an agent. Agents that can write (planner, test-author, implementer) could otherwise edit it.
 #   2. Read-only roles (every factory agent except planner, test-author and implementer) can't edit at
 #      all. This needs agent_type in the hook input; without it, the orchestrator's before/after hash
 #      check (change-diff.sh --hash) is the only mechanism.

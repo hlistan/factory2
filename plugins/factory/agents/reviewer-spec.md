@@ -5,7 +5,6 @@ tools: Read, Grep, Glob, Bash
 disallowedTools: Skill
 model: opus
 effort: high
-memory: project
 skills:
   - review-rubric
 ---

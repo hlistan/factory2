@@ -9,7 +9,7 @@ allowed-tools: Bash(bash ${CLAUDE_PLUGIN_ROOT}/scripts/*) Bash(bash ${CLAUDE_PLU
 
 `S=${CLAUDE_PLUGIN_ROOT}/scripts`, `T=${CLAUDE_PLUGIN_ROOT}/templates`.
 
-1. **Doctor.** `bash $S/doctor.sh`. It checks: Claude Code ≥ 2.1.311; auto memory on; neither
+1. **Doctor.** `bash $S/doctor.sh`. It checks: Claude Code ≥ 2.1.311; auto memory (a warning only: factory loads agent memory itself); neither
    `disableAllHooks` nor `allowManagedHooksOnly` set; no other enabled plugin named `factory`;
    `CLAUDE_CODE_EFFORT_LEVEL` unset (it overrides every agent's effort); compound-engineering installed
    and enabled; git, jq and python3 present; ffmpeg, gh and docker (optional). Show its output. Stop on

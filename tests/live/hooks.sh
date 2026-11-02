@@ -1,23 +1,25 @@
 #!/usr/bin/env bash
 # Live: factory's hooks fire in a real session, and the platform behaves as factory assumes. Runs
 # `claude -p --plugin-dir` (factory and compound-engineering: factory loads no agents without its
-# dependency) under your normal login, in throwaway repos, with spend caps, and auto memory forced on for
-# the test sessions (--settings). FACTORY_HOOK_LOG (a directory) captures every hook input as a file.
+# dependency) under your normal login, in throwaway repos, with spend caps, and auto memory forced OFF for
+# the test sessions (--settings): factory's agent memory must not depend on it. FACTORY_HOOK_LOG (a
+# directory) captures every hook input as a file.
 #  A (main session + read-only subagent + memory + Skill gating):
 #    - SessionStart, PreToolUse Bash and PreToolUse Write fire
 #    - guard-bash blocks ship.deploy outside an approved stage 7
 #    - PreToolUse input for a subagent's tool call carries agent_type "factory:<agent>"
-#    - test-guard blocks a Write from a read-only agent (memory agents get Write automatically)
+#    - test-guard blocks a Write from a read-only agent
 #    - test-guard blocks writes to agent memory (shown from the main session: agents' prompts already
 #      forbid it, so a subagent probe never reaches the hook)
-#    - a plugin agent's project memory is .claude/agent-memory/factory-<agent>/MEMORY.md
+#    - SubagentStart (memory-inject) loads .claude/agent-memory/factory-<agent>/MEMORY.md with auto memory off
 #    - the Agent tool's `model` parameter takes effect (subagent transcript model)
 #    - a subagent with disallowedTools: Skill can't invoke compound-engineering:ce-compound
 #  B (implementer gate):
 #    - SubagentStop ^factory:implementer$ fires, blocks while a fast check fails, stops at stop_retries
 #    - SubagentStop ^factory: fires for other agents (spend recorded in state.json)
 #    - the Agent tool's effort parameter overrides the agent's frontmatter effort
-#  C (observation, printed): whether CLAUDE_CODE_EFFORT_LEVEL overrides the Agent tool's effort parameter
+#  C: CLAUDE_CODE_EFFORT_LEVEL overrides the Agent tool's effort parameter (why state.sh start refuses it)
+#  D: the stop gate's own time limit: a hung fast check is killed, the stop let through and recorded
 # Usage: bash tests/live/hooks.sh [--ce <compound-engineering dir>]   (about $2-6)
 . "$(dirname "$0")/../lib.sh"
 CE=""
@@ -28,7 +30,7 @@ cl() { # <budget> <prompt>: claude -p in the current repo with factory (and ce, 
   local extra=()
   [ -n "$CE" ] && extra=(--plugin-dir "$CE") || { echo "hooks.sh: compound-engineering not found (--ce <dir>)" >&2; exit 2; }
   FACTORY_HOOK_LOG="$LOG" claude -p "$2" --plugin-dir "$PLUGIN" "${extra[@]}" --model sonnet \
-    --settings '{"autoMemoryEnabled": true}' --max-budget-usd "$1" --permission-mode acceptEdits --allowedTools "Agent Bash Read Write Glob Grep" \
+    --settings '{"autoMemoryEnabled": false}' --max-budget-usd "$1" --permission-mode acceptEdits --allowedTools "Agent Bash Read Write Glob Grep" \
     --output-format json < /dev/null 2> "$T_TMP/cl.err"
 }
 events() { ls "$LOG" 2>/dev/null | sed 's/^[0-9]*-[0-9]*-//; s/\.json$//' | sort | uniq -c | tr -s ' ' | tr '\n' ';'; }
@@ -69,7 +71,8 @@ else echo "    NOTE reviewer-spec didn't attempt the Write this time; the block 
 [ ! -f probe.txt ] && t_ok || t_fail "a read-only agent's Write was not blocked"
 t_has "$(logs test-guard)" 'factory-test-author/MEMORY.md' "a memory write reached test-guard"
 [ ! -f .claude/agent-memory/factory-test-author/MEMORY.md ] && t_ok || t_fail "a write to agent memory was not blocked"
-t_has "$resA" "ZEBRA-42" "planner reads .claude/agent-memory/factory-planner/MEMORY.md"
+t_has "$(logs memory-inject)" '"agent_type":"factory:planner"' "SubagentStart fired for the planner"
+t_has "$resA" "ZEBRA-42" "planner gets .claude/agent-memory/factory-planner/MEMORY.md with auto memory off"
 t_hasnt "$resA" "OTTER-17" "the unprefixed agent-memory dir is not used"
 t_has "$resA" "NO-SKILL-TOOL" "a subagent with disallowedTools: Skill has no Skill tool"
 t_hasnt "$(cat "$LOG"/*.json)" '"skill":"compound-engineering:ce-compound"' "ce-compound was not invoked"
@@ -114,4 +117,19 @@ eC="$(sent_effort "$tp")"
 printf '    C cost $%s; with CLAUDE_CODE_EFFORT_LEVEL=high and effort "low" the subagent ran at: %s\n' "$(printf '%s' "$outC" | jq -r '.total_cost_usd // "?"')" "${eC:-unknown}"
 # observed on 2.1.316: the env var wins, so /factory:run refuses to start while it is set
 t_eq "$eC" "high" "CLAUDE_CODE_EFFORT_LEVEL overrides the Agent tool's effort parameter (factory relies on knowing this)"
+
+# ---------------------------------------------------------------- D: the stop gate's time limit
+rm -rf "$LOG"
+R4="$(new_repo)"; cd "$R4" || exit 2
+write_config "$R4" 'checks:
+  fast:
+    hang: "sleep 60"'
+git add -A && git commit -q -m config
+FACTORY_ROOT="$R4" bash "$S/state.sh" start gate >/dev/null
+promptD='This is an automated test of a plugin. Use the Agent tool with subagent_type "factory:implementer", model "sonnet" and effort "low", prompt: "Test step: create hello.txt containing hello, then stop." Then reply DONE.'
+t0="$(date +%s)"
+outD="$(FACTORY_GATE_BUDGET=5 cl 1 "$promptD")"
+printf '    D cost $%s in %ss\n' "$(printf '%s' "$outD" | jq -r '.total_cost_usd // "?"')" "$(( $(date +%s) - t0 ))"
+t_has "$(cat "$R4/.factory/runs/gate/stop-gate.log" 2>/dev/null)" "timeout after 5s" "the gate stopped the hung check at its own limit"
+t_eq "$(jq -r '.gate_timeouts // 0' "$R4/.factory/runs/gate/state.json")" "1" "and recorded it for the orchestrator"
 t_done

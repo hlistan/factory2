@@ -124,4 +124,16 @@ git -C "$R" checkout -q -- package.json
 rm "$R/src/ok"
 printf 'unit\n' > "$R/.factory/runs/demo/baseline-failures"
 stop factory:implementer i4;                             t_code 0 "a check already failing at the baseline doesn't block"
+# the gate's own time limit: a hung check is killed and the stop let through (and recorded), because
+# Claude Code would cancel the hook at its timeout and let the agent stop unchecked anyway
+snap="$R/.factory/runs/demo/checks.snapshot.json"; cp "$snap" "$snap.bak"
+jq '.fast = {hang: "sleep 30; echo still-here > hung.txt"}' "$snap.bak" > "$snap"
+t0="$(date +%s)"
+FACTORY_GATE_BUDGET=2 stop factory:implementer i5;       t_code 0 "a check over the gate's time limit lets the stop through"
+[ $(( $(date +%s) - t0 )) -lt 12 ] && t_ok || t_fail "the gate didn't stop at its time limit"
+t_has "$ERR" "longer than 2s" "says the checks timed out"
+t_has "$(cat "$R/.factory/runs/demo/stop-gate.log")" "timeout after 2s" "the timeout is in stop-gate.log"
+t_eq "$(jq -r '.gate_timeouts' "$R/.factory/runs/demo/state.json")" "1" "and counted in state"
+sleep 1; [ ! -f "$R/hung.txt" ] && t_ok || t_fail "the hung check's process group survived the gate"
+mv "$snap.bak" "$snap"
 t_done
