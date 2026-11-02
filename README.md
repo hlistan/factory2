@@ -18,6 +18,7 @@ project.
 
 - `plugins/factory/`: the plugin (agents, skills, hooks, scripts, templates, evals)
 - `tests/`: bash tests for the scripts (`bash tests/run.sh`), plus live platform tests
+- `docs/GUIDE.md`: **user guide**: how the harness works, step by step; monitoring; controlling results; self-learning
 - `docs/PRD.md`: the design and its evidence; `docs/history/`: earlier versions and reviews;
   `docs/solutions/`: lessons learned while building it
 
