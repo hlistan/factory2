@@ -11,7 +11,7 @@
       "name": "factory2",
       "source": "./plugins/factory2",
       "description": "Runs one feature through plan, PRD review, test-first implementation, review, evidence, ship and monitor, with gates and self-learning",
-      "version": "0.2.0"
+      "version": "0.3.0"
     }
   ]
 }

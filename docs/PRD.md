@@ -314,7 +314,7 @@ milestone and on every agent-prompt change; QA false negatives exported by `stat
 ```
 .claude-plugin/marketplace.json     marketplace "factory2" → ./plugins/factory2
 plugins/factory2/
-  .claude-plugin/plugin.json        version 0.2.0, no dependencies
+  .claude-plugin/plugin.json        version 0.3.0, no dependencies
   agents/      planner prd-reviewer learnings-researcher test-author test-reviewer implementer
                reviewer-{correctness,spec,security,maintainability} challenger qa-evaluator triager researcher
   skills/      run init monitor status stats                     (user commands)

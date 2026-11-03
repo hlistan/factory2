@@ -3,7 +3,7 @@
 How the harness works, how to run a feature through it, how to watch it, how to keep control of what it
 produces, and how it learns from your feedback.
 
-> **Build status (v0.1.0).** Stages 1–5 are complete: the orchestrator instructions, the agents, the hooks
+> **Build status (v0.3.0).** Stages 1–5 are complete: the orchestrator instructions, the agents, the hooks
 > and the harness scripts, with unit tests and live hook tests. Stages 6–8 have their instructions and
 > agents, but four scripts are still to come: `evidence.sh` (M5), `ship.sh` and `monitor.sh` (M6), and
 > `stats.sh` (M7). Until then the orchestrator stops at the start of stage 6 and reports the missing

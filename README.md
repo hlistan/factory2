@@ -7,7 +7,7 @@ to the next run.**
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Claude Code ≥ 2.1.311](https://img.shields.io/badge/Claude%20Code-%E2%89%A5%202.1.311-d97757)](https://code.claude.com/docs)
 ![Status: alpha](https://img.shields.io/badge/status-alpha-orange)
-![Version 0.2.0](https://img.shields.io/badge/version-0.2.0-lightgrey)
+![Version 0.3.0](https://img.shields.io/badge/version-0.3.0-lightgrey)
 
 ---
 
