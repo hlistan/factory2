@@ -24,3 +24,6 @@ PRD v2 declared `compound-engineering` at `~3.34`. Claude Code resolves a range 
 
 ## Why This Matters
 A range that cannot resolve gives no pin and a delayed outage. Validation does not exercise resolution.
+
+Follow-up (2026-11-03): factory2 then dropped the dependency and bundles the two skills it uses; see
+`floor-only-dependency-changes-behaviour-under-you.md`.

@@ -85,17 +85,18 @@ shows the override holds up on your own runs.
 
 ## 2. One-time setup
 
-1. **Install the plugins.**
+1. **Install the plugin.**
    ```sh
-   claude plugin marketplace add EveryInc/compound-engineering-plugin
    claude plugin marketplace add <factory2 marketplace: git URL or local path>
-   claude plugin install factory2@factory2      # installs compound-engineering too
+   claude plugin install factory2@factory2
    ```
+   That's all: factory2 bundles the two compound-engineering skills it uses (ce-compound and
+   ce-compound-refresh), pinned to one release, so it needs no other plugin. If you also use
+   compound-engineering for its other workflows, install it as usual; both write the same
+   `docs/solutions/`.
 2. **Open the project in Claude Code and run `/factory2:init`.** It:
    - runs `doctor.sh`: Claude Code ≥ 2.1.311, hooks not disabled, no other plugin named `factory2`,
-     `CLAUDE_CODE_EFFORT_LEVEL` unset, compound-engineering enabled, `git`, `jq` and `python3` present;
-   - runs the compound-engineering contract test (about a minute; it checks that the version you have
-     still behaves the way factory2's learning capture expects);
+     `CLAUDE_CODE_EFFORT_LEVEL` unset, the bundled ce-compound present, `git`, `jq` and `python3` present;
    - writes `.factory/config.yaml` from your build files and runs each check once to prove the commands
      exist;
    - for web projects, offers to install `@playwright/cli`;
@@ -418,7 +419,7 @@ The config is frozen during a run. Edits take effect on the next run.
 
 | Layer | What it holds | Written by | Read by | Where |
 |---|---|---|---|---|
-| **Project knowledge** | One document per lesson that generalises: symptom, wrong first guess, root cause, fix, what to check next time | compound-engineering's `ce-compound`, called by the orchestrator | `learnings-researcher` before planning and before review | `docs/solutions/` (committed) |
+| **Project knowledge** | One document per lesson that generalises: symptom, wrong first guess, root cause, fix, what to check next time | `ce-compound` (compound-engineering's, bundled and pinned), called by the orchestrator | `learnings-researcher` before planning and before review | `docs/solutions/` (committed) |
 | **Per-agent calibration** | Short "check this next time" lines for the agent that missed something | Only the harness: lines are recorded during the run and folded in at stage 7 | Each factory2 agent, loaded at spawn by a hook (first 200 lines or 25 KB) | `.claude/agent-memory/factory-<agent>/MEMORY.md` (committed) |
 | **Your corrections** | Claude Code's built-in auto memory | Claude Code | Your sessions | Claude Code's memory (optional) |
 
@@ -475,7 +476,7 @@ only: one becomes a calibration line when a stage outcome confirms it, never dir
 - **Size:** each `MEMORY.md` is capped at `learning.memory_max_lines` (150). The oldest lines move to
   `archive.md` in the same folder, which isn't loaded. `/factory2:stats` *(M7)* lists agents near the cap
   so you can consolidate them.
-- **Project knowledge:** `docs/solutions/` is ordinary markdown. compound-engineering's
+- **Project knowledge:** `docs/solutions/` is ordinary markdown. The bundled
   `ce-compound-refresh` consolidates it when ce-compound recommends a refresh, or every
   `learning.refresh_ceiling` runs.
 - **Turn it off:** `learning.enabled: false`.
@@ -491,7 +492,7 @@ Each run's committed history file records:
 - for bugfix runs: the issue, the run that caused it, and the stage that should have caught it
 - spend by stage and by agent
 - review depth
-- ce-compound outcomes and the compound-engineering version
+- ce-compound outcomes and the compound-engineering release it was bundled from
 - calibration lines
 
 `/factory2:stats` reads all of them. Use it to:
@@ -519,7 +520,7 @@ agent prompt changes. The seed case, a PRD with no empty-state criterion, scored
 
 | Command | Use |
 |---|---|
-| `/factory2:init` | Once per project, and again after upgrading factory2 or compound-engineering |
+| `/factory2:init` | Once per project, and again after upgrading factory2 |
 | `/factory2:run "<feature>"` | Start a run |
 | `/factory2:run --issue <ref>` | Start a bugfix run from an issue |
 | `/factory2:run <slug> [--from <n>]` | Resume, or restart from a stage |
@@ -539,10 +540,24 @@ agent prompt changes. The seed case, a PRD with no empty-state criterion, scored
                                          stop-gate.log, gate-errors.log
   incidents/I-<n>.md         ignored     incident issues when monitor.report is file (M6)
 docs/specs/<slug>/           committed   prd.md, contract.json, plan.md, feedback/
-docs/solutions/              committed   project knowledge (compound-engineering)
+docs/solutions/              committed   project knowledge (ce-compound)
 .claude/agent-memory/factory-<agent>/
   MEMORY.md, archive.md      committed   per-agent calibration
 ```
+
+### Updating the bundled compound-engineering skills
+
+factory2 carries unchanged copies of compound-engineering's `ce-compound` and `ce-compound-refresh`,
+pinned to one release (`plugins/factory2/vendor/compound-engineering/upstream.json`). They don't change
+when compound-engineering does. To see whether upstream has moved on, run
+`FACTORY_TEST_ONLINE=1 bash tests/plugin.test.sh`, which prints a `DRIFT` line for each changed skill. To
+update, in the factory2 repo:
+
+1. Read the upstream diff between the pinned tag and the new one, looking for new things the skill
+   *writes*, not only format changes. A learning step must never edit tests or check configs.
+2. `tools/vendor-ce.sh <new tag>`.
+3. `bash tests/run.sh`, then `bash tests/live/ce-contract.sh` (about $1).
+4. Record the update in `docs/PRD.md`, and release a new factory2 version.
 
 ### Troubleshooting
 
@@ -555,5 +570,4 @@ docs/solutions/              committed   project knowledge (compound-engineering
 | `freeze` refuses: a check file differs from the base | It was changed on the branch before the freeze. Revert it, or add a plan Exception the PRD review covers. |
 | A hook blocks everything with "jq is missing" | Install `jq` and `python3`. Inside a factory2 project the guards fail closed. |
 | The stop gate timed out | The fast checks take too long (more than about 14 minutes). Move slow ones to `checks.slow`. `state.sh baseline` warns when the fast set takes over 7 minutes. |
-| "compound-engineering … hasn't passed factory2's contract test" | Run `/factory2:init`, or let `/factory2:run` run the test. Learning capture is off until it passes. |
 | An edit is blocked though no run should be active | The file guards act only while a run is active in that checkout. Check `/factory2:status`, and end a finished run with `state.sh end`. (The Bash guard is always on, by design.) |

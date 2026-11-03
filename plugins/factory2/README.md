@@ -33,7 +33,6 @@ once `/factory2:stats` shows the override holds up on your own runs.
 ## Install
 
 ```sh
-claude plugin marketplace add EveryInc/compound-engineering-plugin
 claude plugin marketplace add <factory2 marketplace: git URL or local path>
 claude plugin install factory2@factory2
 ```
@@ -44,7 +43,7 @@ Then run `/factory2:init` in each project.
 
 | Command | What it does |
 |---|---|
-| `/factory2:init` | Checks the environment, runs the compound-engineering contract test, writes `.factory/config.yaml` for your stack |
+| `/factory2:init` | Checks the environment and writes `.factory/config.yaml` for your stack |
 | `/factory2:run "<feature>"` | Starts a run; `/factory2:run <slug>` resumes one |
 | `/factory2:run --issue <ref>` | Starts a bugfix run from an issue (GitHub number or URL, or a local incident file) |
 | `/factory2:status` | Where the active run stands |
@@ -54,10 +53,8 @@ Then run `/factory2:init` in each project.
 ## Requirements
 
 - Claude Code 2.1.311 or later.
-- `git`, `jq` and `python3` (the harness scripts use nothing else). Optional: `gh` (PRs and incident
+- `git`, `jq` and `python3` (the harness scripts and the bundled ce-compound use nothing else). Optional: `gh` (PRs and incident
   issues), `ffmpeg` (mp4 video), `docker` (pinned Playwright browsers).
-- [compound-engineering](https://github.com/EveryInc/compound-engineering-plugin) 3.21.1 or later,
-  declared as a dependency and installed with factory.
 - For web projects, Playwright 1.59 or later and `@playwright/cli`.
 
 Checks are your project's own commands. Each writes JUnit XML into `$FACTORY_REPORTS`, and a test names
@@ -84,8 +81,11 @@ harness, not an agent, decides that a criterion passes.
 
 - Gate scripts (`guard-bash`, `test-guard`, `run-checks`, `subagent-stop`, `change-diff`) are ported
   from singularity 0.7.0 (MIT).
-- Project knowledge capture and retrieval use
-  [compound-engineering](https://github.com/EveryInc/compound-engineering-plugin) by Every (MIT);
-  `agents/learnings-researcher.md` is a port of its learnings-researcher at commit `f2762dd`.
+- Project knowledge capture and retrieval come from
+  [compound-engineering](https://github.com/EveryInc/compound-engineering-plugin) by Every (MIT).
+  `skills/ce-compound/` and `skills/ce-compound-refresh/` are unchanged copies from release 3.34.0
+  (commit `f1b2499`), and `agents/learnings-researcher.md` is a port of its learnings-researcher
+  (commit `f2762dd`, the same file in 3.34.0). `vendor/compound-engineering/` holds the license and the
+  manifest the tests check the copies against; `tools/vendor-ce.sh` in the repo updates them.
 
 MIT licensed.

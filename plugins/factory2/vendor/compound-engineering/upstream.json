@@ -1,0 +1,71 @@
+{
+  "upstream": "https://github.com/EveryInc/compound-engineering-plugin",
+  "tag": "compound-engineering-v3.34.0",
+  "commit": "f1b249924c0e41b14974a4eeb89e91000a22e2c3",
+  "version": "3.34.0",
+  "released": "2026-10-30",
+  "license": "MIT, (c) Every, Inc. (LICENSE here)",
+  "note": "Copied unchanged by tools/vendor-ce.sh. Do not edit these skills; re-vendor instead.",
+  "skills": {
+    "ce-compound": {
+      "tree": "84465f07488d161cc7d7e4c787daf1a419b5a935",
+      "files": {
+        "SKILL.md": "c74277568a13d3b944f3c436f82f560ee79229a5",
+        "assets/resolution-template.md": "14c898541f2c940d4c5d45ddd3642e228b75d438",
+        "references/agents/best-practices-researcher.md": "37225be71ab13dc2b5b634f2593353896395ff76",
+        "references/agents/data-integrity-guardian.md": "c47ca12c8232e1c5a87db7d37d124c42f343fea7",
+        "references/agents/framework-docs-researcher.md": "3649c7b28f4d812fdd6d8a3c430aa0a550eba953",
+        "references/agents/pattern-recognition-specialist.md": "9cb72cb83b19d025037dac0c1f6c3414996ee9fd",
+        "references/agents/performance-oracle.md": "8862a000a8afcac4b2c1bcca98ff0d52c2d1b079",
+        "references/agents/security-sentinel.md": "fd9575b60c3c849a897c7b31d7b0c0222e6dbedd",
+        "references/agents/session-historian.md": "aa25b4bd1b9f282e87928228a87edd804d1687b6",
+        "references/assembly.md": "4c03e11ac493ad2902b5db84b19a875a28975bc2",
+        "references/concepts-vocabulary.md": "a8e75b684d65881db710d05864943ee76a8842b9",
+        "references/enhancement.md": "672bb2e2ce47ef31bcba187b7cc21dc62da468e4",
+        "references/grounding-validation.md": "39351e1e9845e59dbe3d16109aaab8a1548272f5",
+        "references/lightweight.md": "0ca59ea5d2f0da346de83d72507e8ef9f18c6d3c",
+        "references/modes.md": "484a43bc6fa2d97c10130471fbe570079e85bed1",
+        "references/refresh-and-discoverability.md": "74a697030e9e6806f770a02c255bb1d060a8a073",
+        "references/report.md": "729ccb7c2b9277487ac9eafcaf9e34fd500dd5b1",
+        "references/research.md": "944c5ef7ba3aff80db91ad35bd13822df5997548",
+        "references/schema.yaml": "89d21af37cb4747024978877adbe2a45042d0e67",
+        "references/session-history.md": "fd35282900e21a2481755782de9d3f7e0bfb6909",
+        "references/yaml-schema.md": "18110d92f292d113a5046675794977e8e6d11a5b",
+        "scripts/packs-resolve.py": "33cee83a796b5fcd77617e4597cf639885fe279e",
+        "scripts/session-history/discover-sessions.sh": "cfc06ed997d8b29ec45e5c78bbfb5d7ff42c9729",
+        "scripts/session-history/extract-errors.py": "e2599cb362b8577016d8c7303c85162218fadd02",
+        "scripts/session-history/extract-metadata.py": "05702ce76f0ec6210f09463c4d5c57314e96cc29",
+        "scripts/session-history/extract-skeleton.py": "386a3d0ed330237424c765e746c0a841722792bf",
+        "scripts/validate-doc-claims.py": "be6853b4cd05befb726d39eb362c2144f5a03d0c",
+        "scripts/validate-frontmatter.py": "8a8cf00019f2e66c69550726a3a4331c78be2904"
+      }
+    },
+    "ce-compound-refresh": {
+      "tree": "095d8d952d5b7a65b8ebcfbff9a79ff3ed918d12",
+      "files": {
+        "SKILL.md": "1dc7c3f4dc3fa9eb2b78642dd0d9075c9520994c",
+        "assets/resolution-template.md": "14c898541f2c940d4c5d45ddd3642e228b75d438",
+        "references/classify.md": "b8fd0c903631083e86c4fb95619c2a0340c9ca9a",
+        "references/commit.md": "0957ffd516d4c9ea69e0610a6ab86b9bf1d5f39e",
+        "references/concepts-vocabulary.md": "ccf769222c028e1c2d8460cf06f806bbb3a47f8d",
+        "references/discoverability.md": "0102f820d7ae9a6ab82aa16ac21ac94d9b4b4630",
+        "references/investigate.md": "5cb5b36748af651154de3be630fb24558b6e01f7",
+        "references/modes.md": "134c0a1492114a69a569e0557e584ad1ff882f05",
+        "references/per-action-flows.md": "dd60e9ada095f46d5280a6c0fa92b1c33748dacc",
+        "references/report.md": "4d3367b571af2bd600c1b0fe1a3aa491b7c4aaba",
+        "references/schema.yaml": "89d21af37cb4747024978877adbe2a45042d0e67",
+        "references/scope.md": "430f59b3201b5ef2019a3ae8f0ad577f9c7bf218",
+        "references/worth-audit.md": "40c243d9e5450a7dc79b62f88f5cff1db34ed6fe",
+        "references/yaml-schema.md": "18110d92f292d113a5046675794977e8e6d11a5b",
+        "scripts/validate-doc-claims.py": "be6853b4cd05befb726d39eb362c2144f5a03d0c",
+        "scripts/validate-frontmatter.py": "8a8cf00019f2e66c69550726a3a4331c78be2904"
+      }
+    }
+  },
+  "ported": {
+    "agents/learnings-researcher.md": {
+      "path": "skills/ce-plan/references/agents/learnings-researcher.md",
+      "blob": "ab60b70641cf6fe395048b511bb96fd3d893663e"
+    }
+  }
+}

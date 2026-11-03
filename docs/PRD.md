@@ -624,3 +624,61 @@ Requested by the user.
   - When Fable 5.1 isn't available to the account (zero data retention), the security review is
     re-spawned once on Opus, and the user is told how to set the override.
 
+## Change: bundle ce-compound instead of depending on compound-engineering (2026-11-03)
+
+Recommended after the user asked whether to keep the dependency or bundle only what factory2 needs, and
+approved by the user. This supersedes the "Dependency contract" paragraph under Self-learning, the
+`dependencies` and `allowCrossMarketplaceDependenciesOn` lines in the Plugin layout, the init steps that
+check compound-engineering and run `ce-setup`, and the dependency-resolution tests in M1.
+
+**Why.**
+- **The dependency couldn't be pinned.** compound-engineering's tags aren't the ones Claude Code resolves
+  against, and its marketplace source is `./`, so every install took whatever upstream `main` held that
+  day. Two things showed this on 2026-11-03:
+  - The copy installed on the development machine reported `3.34.0` but was a later snapshot of `main`
+    (commit `77cc431`). The version string didn't identify the code.
+  - Release 3.35.0 (2026-11-03) changed what non-interactive `ce-compound` does: it now holds a lesson
+    "in its cheapest durable form", writing an added test, a tightened lint rule or a
+    `CODING_STANDARDS.md` condition without asking. Inside a factory2 run, that would edit frozen tests
+    or check-defining files (lint configs) through a learning step. It also deprecated
+    `ce-compound-refresh` in favour of `ce-compound mode:refresh`.
+- **factory2 used 3 of 37 skills.** Two of them (`ce-compound`, `ce-compound-refresh`) do the work;
+  `ce-setup` only wrote an optional config. The other 34 cost about 3.2k tokens of skill descriptions in
+  every session (`claude plugin details`), and in the orchestrator's session, workflows such as `lfg`,
+  `ce-work` and `ce-commit-push-pr` could trigger on their own.
+- **Proven pattern.** Copying a small, licensed part of a fast-moving dependency, pinned and checked
+  against upstream, is how Go's `vendor/`, git subtree and Chromium's `third_party/` handle the same
+  problem. factory2 already did it for `learnings-researcher`.
+
+**What changed.**
+- `plugins/factory2/skills/ce-compound/` and `skills/ce-compound-refresh/` are unchanged copies of the
+  release tag `compound-engineering-v3.34.0` (commit `f1b2499`, 2026-10-30): the release the M1
+  contract test and the design were based on. The orchestrator calls them as `factory2:ce-compound` and
+  `factory2:ce-compound-refresh`. They read the same `.compound-engineering/config.yaml` (`docs_root`,
+  default `docs`) and write the same `docs/solutions/` files, so a project that also installs
+  compound-engineering keeps one knowledge base.
+- `plugins/factory2/vendor/compound-engineering/` holds the upstream `LICENSE` (MIT) and `upstream.json`:
+  the tag, commit, and each copied file's git blob hash, plus the learnings-researcher pin (the same blob
+  `ab60b70` at 3.34.0).
+- `tools/vendor-ce.sh <tag>` re-copies both skills from a release and rewrites the manifest. Updating is
+  deliberate: read the upstream diff, run it, run `tests/run.sh` and `tests/live/ce-contract.sh`, record
+  the change here.
+- Removed: `dependencies` in `plugin.json`, `allowCrossMarketplaceDependenciesOn` in the marketplace,
+  the `ce-setup` step and the compound-engineering check in `/factory2:init`, the per-version contract
+  check in SessionStart and before stage 1, and `state.sh ce-path`. `state.sh ce-version` now prints the
+  bundled release, which history files keep recording.
+- The contract test moved from the plugin to `tests/live/ce-contract.sh`. It runs the bundled skill and
+  is a release check for re-vendoring, not a runtime gate.
+- Plugin version 0.2.0.
+
+**Tests.**
+- `plugin.test.sh`: both skills byte-identical to the manifest (no file added, changed or missing), the
+  license present, no plugin dependencies, no `compound-engineering:` calls left. With
+  `FACTORY_TEST_ONLINE=1` it compares the pin with upstream's latest release and prints `DRIFT` lines.
+- `tests/live/deps.sh`: factory2 installs alone from a git source and from a directory, loads with no
+  errors, and lists both bundled skills and its 14 agents.
+
+**Not adopted, for now.** 3.35.0's "cheapest durable form" idea (turning a lesson into a test or lint rule)
+is good, but in factory2 a new check must go through test-author, test-reviewer and the freeze, never
+through a learning step. Adopting it means routing the "recommended form" to stage 5 as a finding, which
+is a design change to make deliberately.

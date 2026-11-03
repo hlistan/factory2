@@ -1,7 +1,6 @@
 #!/usr/bin/env bash
 # Live: factory's hooks fire in a real session, and the platform behaves as factory assumes. Runs
-# `claude -p --plugin-dir` (factory and compound-engineering: factory loads no agents without its
-# dependency) under your normal login, in throwaway repos, with spend caps, and auto memory forced OFF for
+# `claude -p --plugin-dir` under your normal login, in throwaway repos, with spend caps, and auto memory forced OFF for
 # the test sessions (--settings): factory's agent memory must not depend on it. FACTORY_HOOK_LOG (a
 # directory) captures every hook input as a file.
 #  A (main session + read-only subagent + memory + Skill gating):
@@ -13,23 +12,18 @@
 #      forbid it, so a subagent probe never reaches the hook)
 #    - SubagentStart (memory-inject) loads .claude/agent-memory/factory-<agent>/MEMORY.md with auto memory off
 #    - the Agent tool's `model` parameter takes effect (subagent transcript model)
-#    - a subagent with disallowedTools: Skill can't invoke compound-engineering:ce-compound
+#    - a subagent with disallowedTools: Skill can't invoke factory2:ce-compound
 #  B (implementer gate):
 #    - SubagentStop ^factory2:implementer$ fires, blocks while a fast check fails, stops at stop_retries
 #    - SubagentStop ^factory: fires for other agents (spend recorded in state.json)
 #    - the Agent tool's effort parameter overrides the agent's frontmatter effort
 #  C: CLAUDE_CODE_EFFORT_LEVEL overrides the Agent tool's effort parameter (why state.sh start refuses it)
 #  D: the stop gate's own time limit: a hung fast check is killed, the stop let through and recorded
-# Usage: bash tests/live/hooks.sh [--ce <compound-engineering dir>]   (about $2-6)
+# Usage: bash tests/live/hooks.sh   (about $2-6)
 . "$(dirname "$0")/../lib.sh"
-CE=""
-[ "${1:-}" = "--ce" ] && CE="${2:-}"
-[ -n "$CE" ] || CE="$(bash "$S/state.sh" ce-path 2>/dev/null)"
 LOG="$T_TMP/hooks"
-cl() { # <budget> <prompt>: claude -p in the current repo with factory (and ce, when found) loaded
-  local extra=()
-  [ -n "$CE" ] && extra=(--plugin-dir "$CE") || { echo "hooks.sh: compound-engineering not found (--ce <dir>)" >&2; exit 2; }
-  FACTORY_HOOK_LOG="$LOG" claude -p "$2" --plugin-dir "$PLUGIN" "${extra[@]}" --model sonnet \
+cl() { # <budget> <prompt>: claude -p in the current repo with factory2 loaded
+  FACTORY_HOOK_LOG="$LOG" claude -p "$2" --plugin-dir "$PLUGIN" --model sonnet \
     --settings '{"autoMemoryEnabled": false}' --max-budget-usd "$1" --permission-mode acceptEdits --allowedTools "Agent Bash Read Write Glob Grep" \
     --output-format json < /dev/null 2> "$T_TMP/cl.err"
 }
@@ -54,7 +48,7 @@ promptA='This is an automated test of a plugin. Do exactly these steps in order 
 2. Use the Agent tool with subagent_type "factory2:reviewer-spec" and model "sonnet", prompt: "Test step: first run the Bash command: echo probe-bash. Then use the Write tool to create probe.txt containing x. Reply with exactly what each tool returned, and stop."
 2b. Use the Write tool yourself to create .claude/agent-memory/factory-test-author/MEMORY.md containing the line "- probe", and report what the tool returned.
 3. Use the Agent tool with subagent_type "factory2:planner" and model "sonnet", prompt: "Test step: do not edit anything. Reply with the project codename if your memory contains one, else NONE. One line."
-4. Use the Agent tool with subagent_type "factory2:researcher" and model "sonnet", prompt: "Test step: list the names of all tools you have. Then, if you have a tool named Skill, use it to invoke compound-engineering:ce-compound with no arguments; otherwise say NO-SKILL-TOOL. Reply in two lines."
+4. Use the Agent tool with subagent_type "factory2:researcher" and model "sonnet", prompt: "Test step: list the names of all tools you have. Then, if you have a tool named Skill, use it to invoke factory2:ce-compound with no arguments; otherwise say NO-SKILL-TOOL. Reply in two lines."
 Finish with one line per step: STEP<n>: <result>.'
 outA="$(cl 3 "$promptA")"
 resA="$(printf '%s' "$outA" | jq -r '.result // empty')"
@@ -75,7 +69,7 @@ t_has "$(logs memory-inject)" '"agent_type":"factory2:planner"' "SubagentStart f
 t_has "$resA" "ZEBRA-42" "planner gets .claude/agent-memory/factory-planner/MEMORY.md with auto memory off"
 t_hasnt "$resA" "OTTER-17" "the unprefixed agent-memory dir is not used"
 t_has "$resA" "NO-SKILL-TOOL" "a subagent with disallowedTools: Skill has no Skill tool"
-t_hasnt "$(cat "$LOG"/*.json)" '"skill":"compound-engineering:ce-compound"' "ce-compound was not invoked"
+t_hasnt "$(cat "$LOG"/*.json)" '"skill":"factory2:ce-compound"' "ce-compound was not invoked"
 # the Agent tool's model parameter: the spend hook saw the subagent transcripts
 tp="$(logs spend | head -n1 | jq -r '.agent_transcript_path // empty')"
 if [ -n "$tp" ] && [ -f "$tp" ]; then

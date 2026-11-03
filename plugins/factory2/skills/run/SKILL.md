@@ -22,10 +22,7 @@ fail from exit codes. Arguments: `$ARGUMENTS`.
    including the Agent tool's `effort` parameter, so factory's per-role effort would be ignored. Then
    ask the user to unset it and restart Claude Code, or to confirm running every agent at that level;
    only on that confirmation repeat the command with `--effort-env-ok`.
-2. If the session-start context said the compound-engineering contract test hasn't passed for the
-   installed version, run `bash ${CLAUDE_PLUGIN_ROOT}/scripts/ce-contract.sh` first. If it fails, continue
-   with `learning.enabled` treated as false for capture and say so once.
-3. The first argument is a **slug** if `.factory/runs/<arg>/state.json` exists: `bash $S/state.sh resume
+2. The first argument is a **slug** if `.factory/runs/<arg>/state.json` exists: `bash $S/state.sh resume
    <slug>`, read `bash $S/state.sh get .` and continue at the recorded stage (or `--from <n>`).
    `--issue <ref>` (a GitHub issue number or URL, or `.factory/incidents/I-n.md`) starts a **bugfix
    run**: read the issue with its comments (`gh issue view <n> --comments`, or the file), derive the slug
@@ -35,7 +32,7 @@ fail from exit codes. Arguments: `$ARGUMENTS`.
    Otherwise it is a **feature request**: derive a short kebab-case slug (≤ 40 chars), confirm it in one
    line, then `bash $S/state.sh start <slug>`. A refusal because another run is active means one run per
    checkout: tell the user to finish it, or start a parallel run with `claude --worktree`.
-4. Open incidents: list open issues labelled `factory-incident` (`gh issue list --label
+3. Open incidents: list open issues labelled `factory-incident` (`gh issue list --label
    factory-incident --state open`, or `.factory/incidents/I-*.md` with `status: open`) that no bugfix
    run claims yet (no `.factory/runs/*/state.json` or `.factory/history/*.json` with that `issue`). Show
    them in one line each and offer `/factory2:run --issue <ref>` for each (in `claude --worktree` when a

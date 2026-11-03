@@ -1,6 +1,6 @@
 # Learning capture
 
-Three layers: compound-engineering docs (project knowledge), per-agent MEMORY.md calibration lines
+Three layers: ce-compound docs (project knowledge; factory2 bundles compound-engineering's skill, pinned), per-agent MEMORY.md calibration lines
 (written only by the harness, loaded into each agent by factory's SubagentStart hook, so it works with
 Claude Code's auto memory on or off), and Claude Code's auto memory (built in, optional). Skip capture entirely when
 `learning.enabled` is false.
@@ -18,7 +18,7 @@ fixed or escalated; a stage 6 issue resolved; an incident postmortem (at the bug
 once the cause and fix are known). One learning per call, and only
 for lessons that generalise beyond this feature:
 
-Skill tool → `compound-engineering:ce-compound` with arguments
+Skill tool → `factory2:ce-compound` with arguments
 `mode:non-interactive depth:<learning.compound_depth> "<context>"`
 
 ce-compound has a durability bar: it skips a lesson that the final code already makes obvious, or that
@@ -33,7 +33,7 @@ Parse the result:
 - Read the `Refresh recommendation:` line, if any.
 - Record: `bash $S/state.sh history '.compound += [{point: $p, outcome: $o, refresh: $r}]' --arg p <point> --arg o <complete|skipped|error> --arg r "<recommendation or empty>"`.
 - When a refresh is recommended, or `learning.refresh_ceiling` runs have passed since the last refresh,
-  run `compound-engineering:ce-compound-refresh` with `mode:non-interactive <scope>` once, at the end of
+  run `factory2:ce-compound-refresh` with `mode:non-interactive <scope>` once, at the end of
   the stage.
 
 ## Issues for stats

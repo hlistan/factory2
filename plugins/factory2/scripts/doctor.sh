@@ -19,6 +19,8 @@ done
 ver_ge() { # <have> <want>
   [ "$(printf '%s\n%s\n' "$2" "$1" | sort -t. -k1,1n -k2,2n -k3,3n | head -n1)" = "$2" ]
 }
+ce="$(bash "$FACTORY_SCRIPTS/state.sh" ce-version 2>/dev/null)"
+if [ -n "$ce" ]; then ok "ce-compound bundled from compound-engineering $ce"; else bad "the bundled ce-compound manifest is missing; reinstall factory2"; fi
 if factory_has claude; then
   v="$(claude --version 2>/dev/null | grep -Eo '[0-9]+\.[0-9]+\.[0-9]+' | head -n1)"
   if [ -n "$v" ] && ver_ge "$v" 2.1.311; then ok "Claude Code $v"; else bad "Claude Code ${v:-unknown} is older than 2.1.311 (claude update)"; fi
@@ -43,22 +45,15 @@ ip="$cfgdir/plugins/installed_plugins.json"
 if [ -f "$ip" ]; then
   n="$(jq -r '[.plugins // {} | keys[] | select(startswith("factory2@"))] | length' "$ip" 2>/dev/null)"
   [ "${n:-0}" -gt 1 ] && bad "more than one plugin named factory is installed; plugin hooks may not fire on a name collision"
-  ce="$(bash "$FACTORY_SCRIPTS/state.sh" ce-version 2>/dev/null)"
-  if [ -n "$ce" ]; then ok "compound-engineering $ce"; else bad "compound-engineering is not installed: claude plugin marketplace add EveryInc/compound-engineering-plugin && claude plugin install compound-engineering@compound-engineering-plugin"; fi
 else
   warn "no $ip; can't check installed plugins"
 fi
 if factory_has claude; then
-  # `enabled` stays true for a plugin that fails to load (e.g. an unsatisfied dependency); .errors says why
-  pl="$(claude plugin list --json 2>/dev/null)"
-  T_OUT="$(mktemp "${TMPDIR:-/tmp}/factory-doctor.XXXXXX")"
-  for p in factory compound-engineering; do
-    printf '%s' "$pl" | jq -r --arg p "$p" '.[]? | select(.id | startswith($p + "@")) |
-      if .enabled == false then "FAIL  \(.id) is disabled: claude plugin enable \(.id)"
-      elif ((.errors // []) | length) > 0 then "FAIL  \(.id) fails to load: \(.errors | join("; "))"
-      else empty end' 2>/dev/null
-  done > "$T_OUT"
-  if [ -s "$T_OUT" ]; then cat "$T_OUT"; fail=1; fi
-  rm -f "$T_OUT"
+  # `enabled` stays true for a plugin that fails to load; .errors says why
+  out="$(claude plugin list --json 2>/dev/null | jq -r '.[]? | select(.id | startswith("factory2@")) |
+    if .enabled == false then "FAIL  \(.id) is disabled: claude plugin enable \(.id)"
+    elif ((.errors // []) | length) > 0 then "FAIL  \(.id) fails to load: \(.errors | join("; "))"
+    else empty end' 2>/dev/null)"
+  if [ -n "$out" ]; then printf '%s\n' "$out"; fail=1; fi
 fi
 exit "$fail"

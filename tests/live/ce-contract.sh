@@ -1,29 +1,28 @@
 #!/usr/bin/env bash
-# compound-engineering contract test: factory depends on ce-compound's non-interactive interface, which has
-# no stability policy. This runs it once on a throwaway fixture repo, under your normal login, and checks:
+# Live: ce-compound contract test. factory2 bundles compound-engineering's ce-compound (pinned, see
+# plugins/factory2/vendor/compound-engineering/upstream.json) and parses its non-interactive report. Run
+# this after re-vendoring (tools/vendor-ce.sh). It runs factory2:ce-compound once on a throwaway fixture
+# repo, under your normal login, and checks:
 #   - the final non-empty line is exactly `Documentation complete` (or `Documentation skipped`)
 #   - a `Refresh recommendation:` line is present on completion
 #   - one doc was written under docs/solutions/<category>/ with a problem_type from ce's closed list
-# On a pass it records the version in $CLAUDE_PLUGIN_DATA/ce-contract.json (when set), which the
-# SessionStart hook compares with the installed version.
-# Usage: ce-contract.sh [--plugin-dir <compound-engineering dir>] [--depth full|lightweight] [--budget <usd>]
-# Default plugin dir: the installed copy (state.sh ce-path). Exit 0 pass, 1 fail, 2 setup error.
+# Usage: bash tests/live/ce-contract.sh [--depth full|lightweight] [--budget <usd>]   (about $1)
+# Exit 0 pass, 1 fail, 2 setup error.
 set -u
-. "$(cd "$(dirname "$0")" && pwd)/lib/common.sh"
+here="$(cd "$(dirname "$0")" && pwd)"; plugin="$here/../../plugins/factory2"
+. "$plugin/scripts/lib/common.sh"
 factory_need jq git
-ce=""; depth="full"; budget="4"
+depth="full"; budget="4"
 while [ $# -gt 0 ]; do
   case "$1" in
-    --plugin-dir) ce="${2:-}"; shift 2 ;;
     --depth) depth="${2:-}"; shift 2 ;;
     --budget) budget="${2:-}"; shift 2 ;;
     *) echo "ce-contract: unknown argument $1" >&2; exit 2 ;;
   esac
 done
-[ -n "$ce" ] || ce="$(bash "$FACTORY_SCRIPTS/state.sh" ce-path 2>/dev/null)"
-[ -n "$ce" ] && [ -f "$ce/skills/ce-compound/SKILL.md" ] || { echo "ce-contract: compound-engineering not found (pass --plugin-dir)" >&2; exit 2; }
+[ -f "$plugin/skills/ce-compound/SKILL.md" ] || { echo "ce-contract: no bundled ce-compound in $plugin" >&2; exit 2; }
 factory_has claude || { echo "ce-contract: claude not on PATH" >&2; exit 2; }
-version="$(jq -r '.version // empty' "$ce/.claude-plugin/plugin.json" 2>/dev/null)"
+version="$(jq -r '.version // empty' "$plugin/vendor/compound-engineering/upstream.json" 2>/dev/null)"
 
 w="$(mktemp -d "${TMPDIR:-/tmp}/factory-ce-contract.XXXXXX")"
 trap 'rm -rf "$w"' EXIT
@@ -48,12 +47,12 @@ JS
 printf '{"scripts":{"dev":"next dev","e2e":"playwright test"}}\n' > "$w/package.json"
 git -C "$w" commit -q -am "e2e: per-run port, never reuse a server; revert the timeout"
 context='Flaky e2e: @AC-1 toggle failed about 1 run in 4, only when two feature branches ran their suites at the same time in separate git worktrees. First attempt (commit 2) raised the Playwright timeout to 120s; failures dropped but the suite got slow and the toggle test still passed against the wrong app sometimes. Investigation: both worktrees started next dev on port 3000, and reuseExistingServer: true let the second run attach to the first worktree'"'"'s server, so tests ran against the other branch'"'"'s code. Fix (commit 3): each run gets its own PORT, webServer and baseURL read it, reuseExistingServer is false, timeout reverted. Verified by running two worktrees in parallel 20 times with zero failures. Lesson: when e2e tests flake only under parallel runs, check for a shared dev-server port with reuseExistingServer before touching timeouts; a longer timeout hides it.'
-prompt="Use the Skill tool to invoke compound-engineering:ce-compound with these arguments, exactly:
+prompt="Use the Skill tool to invoke factory2:ce-compound with these arguments, exactly:
 mode:non-interactive depth:$depth \"$context\"
 After the skill finishes, output nothing further."
 
 out="$w/out.json"
-( cd "$w" && claude -p "$prompt" --plugin-dir "$ce" --model opus --max-budget-usd "$budget" \
+( cd "$w" && claude -p "$prompt" --plugin-dir "$plugin" --model opus --max-budget-usd "$budget" \
     --permission-mode acceptEdits --allowedTools "Skill Read Write Edit Glob Grep Bash" \
     --output-format json < /dev/null > "$out" 2> "$w/err.txt" )
 code=$?
@@ -73,16 +72,12 @@ else say "FAIL no 'Refresh recommendation:' line"; fail=1; fi
 docs="$(cd "$w" && find docs/solutions -mindepth 2 -name '*.md' 2>/dev/null)"
 n="$(printf '%s' "$docs" | grep -c .)"
 if [ "$n" -ge 1 ]; then say "OK   $n doc(s): $(printf '%s' "$docs" | tr '\n' ' ')"; else say "FAIL no doc under docs/solutions/<category>/"; fail=1; fi
-schema="$ce/skills/ce-compound/references/schema.yaml"
+schema="$plugin/skills/ce-compound/references/schema.yaml"
 for d in $docs; do
   pt="$(awk 'NR==1&&/^---$/{f=1;next} f&&/^---$/{exit} f' "$w/$d" | sed -n 's/^problem_type: *//p' | tr -d '"'"'" | head -n1)"
   if [ -n "$pt" ] && grep -q -- "- $pt\$" "$schema"; then say "OK   $d problem_type: $pt"
   else say "FAIL $d problem_type [$pt] is not in ce's schema"; fail=1; fi
 done
-say "     compound-engineering $version, depth $depth, cost \$${cost:-?}"
-if [ "$fail" -eq 0 ] && [ -n "${CLAUDE_PLUGIN_DATA:-}" ]; then
-  mkdir -p "$CLAUDE_PLUGIN_DATA"
-  jq -n --arg v "$version" --arg at "$(now_utc)" --arg d "$depth" '{passed_version: $v, at: $at, depth: $d}' > "$CLAUDE_PLUGIN_DATA/ce-contract.json"
-fi
+say "     bundled ce-compound from compound-engineering $version, depth $depth, cost \$${cost:-?}"
 [ "$fail" -eq 0 ] && say "ce-contract: PASS" || { say "ce-contract: FAIL (result tail below)"; printf '%s\n' "$result" | tail -n 25 | sed 's/^/  | /'; }
 exit "$fail"

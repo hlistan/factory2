@@ -6,15 +6,12 @@
   "metadata": {
     "description": "factory2: an 8-stage feature harness for Claude Code (plan, PRD review, tests, implementation, review, evidence, ship, monitor)"
   },
-  "allowCrossMarketplaceDependenciesOn": [
-    "compound-engineering-plugin"
-  ],
   "plugins": [
     {
       "name": "factory2",
       "source": "./plugins/factory2",
       "description": "Runs one feature through plan, PRD review, test-first implementation, review, evidence, ship and monitor, with gates and self-learning",
-      "version": "0.1.0"
+      "version": "0.2.0"
     }
   ]
 }

@@ -93,18 +93,14 @@ t_eq "$h3" "$h2" "run state (git-ignored) doesn't change the hash"
 run bash "$S/state.sh" end; t_code 0 "end releases the checkout"
 run bash "$S/state.sh" resume nope; t_code 1 "resume needs an existing run"
 run bash "$S/state.sh" resume dark-mode; t_code 0 "resume"
-mkdir -p "$T_TMP/cfgdir/plugins" "$T_TMP/data"
-printf '{"version":2,"plugins":{"compound-engineering@compound-engineering-plugin":[{"version":"3.34.0"}]}}' > "$T_TMP/cfgdir/plugins/installed_plugins.json"
-printf '{"passed_version":"3.33.2"}' > "$T_TMP/data/ce-contract.json"
-CLAUDE_CONFIG_DIR="$T_TMP/cfgdir" CLAUDE_PLUGIN_DATA="$T_TMP/data" CLAUDE_CODE_EFFORT_LEVEL=high \
-  hook "$S/session-start.sh" '{"hook_event_name":"SessionStart","transcript_path":"/tmp/t.jsonl"}'
+CLAUDE_CODE_EFFORT_LEVEL=high hook "$S/session-start.sh" '{"hook_event_name":"SessionStart","transcript_path":"/tmp/t.jsonl"}'
 t_has "$OUT" "run dark-mode is active at stage 1" "names the active run"
-t_has "$OUT" "3.34.0 hasn't passed" "flags an untested compound-engineering version"
+t_hasnt "$OUT" "compound-engineering" "no compound-engineering checks (ce-compound is bundled)"
 t_has "$OUT" "CLAUDE_CODE_EFFORT_LEVEL" "warns about the effort override"
 t_eq "$(cat "$R/.factory/runs/.main-transcript")" "/tmp/t.jsonl" "records the transcript path"
-printf '{"passed_version":"3.34.0"}' > "$T_TMP/data/ce-contract.json"
-CLAUDE_CONFIG_DIR="$T_TMP/cfgdir" CLAUDE_PLUGIN_DATA="$T_TMP/data" hook "$S/session-start.sh" '{}'
-t_hasnt "$OUT" "contract test" "quiet once the version passed"
+hook "$S/session-start.sh" '{}'
+t_hasnt "$OUT" "CLAUDE_CODE_EFFORT_LEVEL" "no effort warning when it is unset"
+t_eq "$(bash "$S/state.sh" ce-version)" "$(jq -r .version "$PLUGIN/vendor/compound-engineering/upstream.json")" "ce-version is the bundled release"
 R2="$(new_repo)"
 FACTORY_ROOT="$R2" hook "$S/session-start.sh" '{}'
 t_eq "$OUT" "" "silent in a project without factory"

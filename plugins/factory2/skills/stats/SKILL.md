@@ -16,7 +16,7 @@ allowed-tools: Bash(bash ${CLAUDE_PLUGIN_ROOT}/scripts/*) Read Glob
    - escapes: bugfix runs (`kind: bugfix`) per originating run (`caused_by`) and the stage that should
      have caught each (`escape.stage_missed`)
    - issues found by humans, by stage, `problem_type` and `component` (from `docs/solutions/` frontmatter)
-   - ce-compound outcomes and compound-engineering versions
+   - ce-compound outcomes and the bundled compound-engineering version
    - lite vs full depth: defects that reached stage 6 or production under each (ablation)
    - agents whose MEMORY.md is near `learning.memory_max_lines`
 2. Explain what the numbers support and what they don't: name the sample size; with fewer than ~10 runs

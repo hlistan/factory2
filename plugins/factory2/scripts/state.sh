@@ -31,7 +31,7 @@
 #   state.sh spend                   print spend by stage and agent (the main session is priced first)
 #   state.sh spend-main              price the main session's transcript into the current stage
 #   state.sh budget-check            exit 1 when the run's estimated spend exceeds limits.budget_usd
-#   state.sh ce-version | ce-path    the installed compound-engineering version, or its install path
+#   state.sh ce-version              the compound-engineering release the bundled ce-compound comes from
 #   state.sh config <jq> [default]   read .factory/config.yaml
 #   state.sh role <agent> [effort]   "<model> <effort>" for a spawn: roles.<agent> in the config, else the
 #                                    given effort (the implementer's re-runs at high), else the agent's
@@ -92,10 +92,8 @@ for i in range(200):
 PY
 }
 
-ce_version() {
-  local f="${CLAUDE_CONFIG_DIR:-$HOME/.claude}/plugins/installed_plugins.json"
-  [ -f "$f" ] || return 1
-  jq -r '[.plugins // {} | to_entries[] | select(.key | startswith("compound-engineering@")) | .value[]?.version] | sort_by(split(".") | map(tonumber? // 0)) | last // empty' "$f"
+ce_version() {   # the release the bundled ce-compound and ce-compound-refresh were copied from
+  jq -r '.version // empty' "$FACTORY_SCRIPTS/../vendor/compound-engineering/upstream.json" 2>/dev/null
 }
 
 main_transcript() { cat "$runs/.main-transcript" 2>/dev/null; }
@@ -315,12 +313,7 @@ case "$cmd" in
     echo "factory: estimated spend \$$(LC_ALL=C awk -v t="$total" 'BEGIN { printf "%.2f", t }') of \$$limit"
     jq -n --argjson t "$total" --argjson l "$limit" 'if $l > 0 and $t > $l then halt_error(1) else empty end' 2>/dev/null || { echo "factory: budget exceeded; pausing at this gate" >&2; exit 1; }
     ;;
-  ce-version) v="$(ce_version)"; [ -n "$v" ] && echo "$v" || { echo "factory: compound-engineering is not installed" >&2; exit 1; } ;;
-  ce-path)
-    f="${CLAUDE_CONFIG_DIR:-$HOME/.claude}/plugins/installed_plugins.json"; v="$(ce_version)"
-    [ -n "$v" ] && [ -f "$f" ] || { echo "factory: compound-engineering is not installed" >&2; exit 1; }
-    jq -r --arg v "$v" '[.plugins // {} | to_entries[] | select(.key | startswith("compound-engineering@")) | .value[]? | select(.version == $v) | .installPath] | first // empty' "$f"
-    ;;
+  ce-version) v="$(ce_version)"; [ -n "$v" ] && echo "$v" || { echo "factory: the bundled ce-compound manifest is missing" >&2; exit 1; } ;;
   config) cfg "${1:-.}" "${2:-}"; echo ;;
   role)
     # <agent> [effort]: prints "<model> <effort>" for a spawn. Precedence: roles.<agent> in the config,
