@@ -17,7 +17,7 @@ mkt() { # <dir> <marketplace name> <git url>
     plugins: [{name: "factory2", source: {source: "git-subdir", url: $u, path: "plugins/factory2"}}]}' \
     > "$1/.claude-plugin/marketplace.json"
 }
-mkt "$T_TMP/mkt" factory-git "file://$T_TMP/factory.git"
+mkt "$T_TMP/mkt" factory2-git "file://$T_TMP/factory.git"
 list_json() { c plugin list --json 2>/dev/null; }
 st() { list_json | jq -r --arg p "$1" '[.[] | select(.id == $p) | .enabled] | first // "absent"'; }
 
