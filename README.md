@@ -18,7 +18,7 @@ one release. Then run `/factory2:init` in each project.
 - `tests/`: bash tests for the scripts (`bash tests/run.sh`), plus live platform tests
 - `tools/vendor-ce.sh`: updates the bundled compound-engineering skills to another release
 - `docs/GUIDE.md`: **user guide**: how the harness works, step by step; monitoring; controlling results; self-learning
-- `docs/PRD.md`: the design and its evidence; `docs/history/`: earlier versions and reviews;
-  `docs/solutions/`: lessons learned while building it
+- `docs/PRD.md`: the design, its evidence and build status; `docs/solutions/`: lessons learned while
+  building it
 
 MIT licensed.

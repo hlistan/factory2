@@ -51,7 +51,7 @@ done
 ip="$cfgdir/plugins/installed_plugins.json"
 if [ -f "$ip" ]; then
   n="$(jq -r '[.plugins // {} | keys[] | select(startswith("factory2@"))] | length' "$ip" 2>/dev/null)"
-  [ "${n:-0}" -gt 1 ] && bad "more than one plugin named factory is installed; plugin hooks may not fire on a name collision"
+  [ "${n:-0}" -gt 1 ] && bad "more than one plugin named factory2 is installed; plugin hooks may not fire on a name collision"
 else
   warn "no $ip; can't check installed plugins"
 fi
