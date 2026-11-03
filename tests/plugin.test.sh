@@ -69,7 +69,8 @@ t_eq "$body_sha" "ab60b70641cf6fe395048b511bb96fd3d893663e" "learnings-researche
 [ -f "$PLUGIN/vendor/compound-engineering/LICENSE" ] && t_ok || t_fail "compound-engineering LICENSE is bundled"
 for s in $(jq -r '.skills | keys[]' "$U"); do
   want="$(jq -r --arg s "$s" '.skills[$s].files | to_entries[] | "\(.key) \(.value)"' "$U" | sort)"
-  have="$(cd "$K/$s" && find . -type f | sed 's#^\./##' | sort | while read -r f; do printf '%s %s\n' "$f" "$(git hash-object "$f")"; done)"
+  # tracked and untracked files, but not git-ignored ones (.DS_Store, __pycache__/): those never ship
+  have="$(cd "$K/$s" && git ls-files -co --exclude-standard | sort | while read -r f; do printf '%s %s\n' "$f" "$(git hash-object "$f")"; done)"
   t_eq "$have" "$want" "$s is byte-identical to $(jq -r .tag "$U")"
   t_eq "$(field "$K/$s/SKILL.md" name)" "$s" "bundled skill $s keeps its upstream name"
 done

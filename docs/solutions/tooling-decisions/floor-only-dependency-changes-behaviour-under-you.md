@@ -27,7 +27,8 @@ version changed. Two things on 2026-11-03 showed the gap:
 ## Guidance
 - When you use a small, licensed part of a fast-moving plugin, copy it unchanged, pinned to a release
   tag, with a manifest of per-file hashes and a test that the copy matches it (factory2:
-  `tools/vendor-ce.sh`, `vendor/compound-engineering/upstream.json`, `tests/plugin.test.sh`).
+  `tools/vendor-ce.sh`, `plugins/factory2/vendor/compound-engineering/upstream.json`,
+  `tests/plugin.test.sh`).
 - Report upstream drift as information, and update by reading the diff, not by default.
 - A contract test of output format doesn't catch a change in what the skill writes. When re-vendoring,
   read the diff for new writes as well as format changes.

@@ -19,8 +19,15 @@ done
 ver_ge() { # <have> <want>
   [ "$(printf '%s\n%s\n' "$2" "$1" | sort -t. -k1,1n -k2,2n -k3,3n | head -n1)" = "$2" ]
 }
-ce="$(bash "$FACTORY_SCRIPTS/state.sh" ce-version 2>/dev/null)"
-if [ -n "$ce" ]; then ok "ce-compound bundled from compound-engineering $ce"; else bad "the bundled ce-compound manifest is missing; reinstall factory2"; fi
+# the bundled ce-compound: checked by file, not through state.sh, so a missing jq isn't reported as a broken install
+man="$FACTORY_PLUGIN/vendor/compound-engineering/upstream.json"
+missing=""
+for f in "$man" "$FACTORY_PLUGIN/skills/ce-compound/SKILL.md" "$FACTORY_PLUGIN/skills/ce-compound-refresh/SKILL.md"; do
+  [ -f "$f" ] || missing="$missing ${f#"$FACTORY_PLUGIN"/}"
+done
+if [ -n "$missing" ]; then bad "the bundled ce-compound is incomplete (missing:$missing); reinstall factory2"
+elif factory_has jq; then ok "ce-compound bundled from compound-engineering $(jq -r '.version // "?"' "$man" 2>/dev/null)"
+else ok "ce-compound bundled"; fi
 if factory_has claude; then
   v="$(claude --version 2>/dev/null | grep -Eo '[0-9]+\.[0-9]+\.[0-9]+' | head -n1)"
   if [ -n "$v" ] && ver_ge "$v" 2.1.311; then ok "Claude Code $v"; else bad "Claude Code ${v:-unknown} is older than 2.1.311 (claude update)"; fi
