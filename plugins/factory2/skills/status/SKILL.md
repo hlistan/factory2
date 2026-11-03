@@ -12,7 +12,11 @@ allowed-tools: Bash(bash ${CLAUDE_PLUGIN_ROOT}/scripts/*) Read Glob
 1. No `.factory/config.yaml`: say factory isn't set up here and suggest `/factory2:init`.
 2. Runs: list `.factory/runs/*/state.json` with slug, stage, phase, and last change; mark the active one
    (`bash $S/state.sh active`). With an argument, show only that run.
-3. For the active (or named) run: stage and phase, rounds vs `limits`, approvals with their SHAs, the PR,
+3. For the active (or named) run: stage and phase, rounds vs `limits`, approvals with their SHAs (and,
+   for one given on the PR, who and the comment link), the PR (`.pr_url`; `review_via` says whether
+   planning is followed there), whether an approval request is waiting (`.approval_request`: the gate and the link; on GitHub,
+   `gh pr list --label factory2:awaiting-approval` lists every run waiting for someone), the
+   newest review's open findings from `docs/specs/<slug>/reviews/`,
    frozen or not, the criteria table from `docs/specs/<slug>/contract.json` (id, passes, test count), and
    `bash $S/state.sh spend` against `limits.budget_usd`.
 4. Open incident issues: `gh issue list --label factory-incident --state open` (with `monitor.report:

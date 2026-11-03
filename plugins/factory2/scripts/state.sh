@@ -17,7 +17,11 @@
 #                                    back revokes the approvals of gates at stage n or later
 #   state.sh phase <name>            plan|prd-review|tests|code|docs|review|evidence|ship|monitor
 #   state.sh round <name>            increment a round counter (prd, impl, review, evidence) and print it
-#   state.sh approve <gate> [sha]    record a human approval (prd, evidence, deploy, rollback) against a commit
+#   state.sh approve <gate> [sha] [--via-pr <url> --by <login>]
+#                                    record a human approval (prd: the PRD and plan; evidence: what was
+#                                    built, before merge) against a commit. Deploy and rollback aren't gates.
+#                                    On a run tracked on a PR, every approval needs --via-pr:
+#                                    pr.sh feedback records it from the person's /approve comment.
 #   state.sh baseline                run every check and save the ones already failing
 #   state.sh freeze                  freeze tests and check-defining files, snapshot the check commands
 #   state.sh verify-freeze [--only tests|checks]
@@ -195,9 +199,14 @@ case "$cmd" in
     spend_main
     # going back (a spec gap to stage 2, a defect or incident to stage 5, ...) revokes every approval
     # given at that stage or later: an approval holds only for the pass through the stages it was given in
-    revoked="$(jq -r --argjson n "$n" 'if $n < (.stage // 1) then [.approvals // {} | keys[] | select(({prd: 2, evidence: 6, deploy: 7, rollback: 7}[.] // 0) >= $n)] | join(" ") else "" end' "$(state_file)")"
-    state_update '(if $n < (.stage // 1) then .approvals |= with_entries(select(({prd: 2, evidence: 6, deploy: 7, rollback: 7}[.key] // 0) < $n)) else . end) | .stage = $n | .stage_entered = $at' --argjson n "$n" --arg at "$(now_utc)"
-    [ -n "$revoked" ] && echo "factory: back to stage $n; approvals revoked: $revoked"
+    revoked="$(jq -r --argjson n "$n" 'if $n < (.stage // 1) then [.approvals // {} | keys[] | select(({prd: 2, evidence: 6}[.] // 0) >= $n)] | join(" ") else "" end' "$(state_file)")"
+    state_update '(if $n < (.stage // 1) then .approvals |= with_entries(select(({prd: 2, evidence: 6}[.key] // 0) < $n)) else . end) | .stage = $n | .stage_entered = $at' --argjson n "$n" --arg at "$(now_utc)"
+    if [ -n "$revoked" ]; then
+      echo "factory: back to stage $n; approvals revoked: $revoked"
+      # the PR's labels follow (best effort: the next pr.sh call refreshes them anyway)
+      [ "$(state_get '.review_via // empty')" = pr ] && bash "$FACTORY_SCRIPTS/pr.sh" labels >/dev/null 2>&1
+    fi
+    true
     ;;
   phase)
     need_active
@@ -209,9 +218,23 @@ case "$cmd" in
     state_update '.rounds[$r] += 1' --arg r "$1" && state_get ".rounds[\"$1\"]"
     ;;
   approve)
-    need_active; gate="${1:-}"; case "$gate" in prd|evidence|deploy|rollback) ;; *) echo "factory: gates are prd, evidence, deploy, rollback" >&2; exit 2 ;; esac
-    sha="${2:-$(git -C "$root" rev-parse HEAD)}"
-    state_update '.approvals[$g] = {sha: $s, at: $at}' --arg g "$gate" --arg s "$sha" --arg at "$(now_utc)"
+    need_active; gate="${1:-}"; case "$gate" in prd|evidence) ;; *) echo "factory: gates are prd and evidence (deploy and rollback need no approval)" >&2; exit 2 ;; esac
+    shift; sha=""; via=""; by=""
+    while [ $# -gt 0 ]; do
+      case "$1" in
+        --via-pr) via="${2:-}"; shift 2 ;;
+        --by) by="${2:-}"; shift 2 ;;
+        -*) echo "factory: approve <gate> [sha] [--via-pr <comment url> --by <login>]" >&2; exit 2 ;;
+        *) sha="$1"; shift ;;
+      esac
+    done
+    sha="${sha:-$(git -C "$root" rev-parse HEAD)}"
+    # a run tracked on a PR takes every approval only from the person's /approve there (pr.sh feedback)
+    if [ "$(state_get '.review_via // empty')" = pr ] && [ -z "$via" ]; then
+      echo "factory: this run's approvals are given on its PR: the person replies /approve to the approval request (pr.sh request-approval $gate, then pr.sh wait $gate)" >&2; exit 1
+    fi
+    state_update '.approvals[$g] = ({sha: $s, at: $at} + (if $u == "" then {} else {url: $u, by: $b} end))' \
+      --arg g "$gate" --arg s "$sha" --arg at "$(now_utc)" --arg u "$via" --arg b "$by"
     echo "factory: $gate approved at $sha"
     ;;
   baseline)

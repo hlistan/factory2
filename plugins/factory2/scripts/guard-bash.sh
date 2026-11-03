@@ -7,8 +7,13 @@
 #   - recursive deletes of / or of the home directory;
 #   - stopping processes by name (pkill, killall): kill by pid;
 #   - the project's deploy and rollback commands (ship.deploy, ship.rollback in .factory/config.yaml)
-#     unless the active factory run is in stage 7 with your deploy confirmation recorded, or in stage 7-8
-#     with a rollback approval. Deploys go through /factory2:run.
+#     unless the active factory run is in stage 7 with the evidence approval recorded (deploy), or in
+#     stage 7-8 (rollback). Deploys go through /factory2:run; neither needs its own approval.
+#   - while the active run is tracked on a PR (review.via: pr): posting or editing PR comments and
+#     reviews with gh (gh pr comment, gh pr review, gh issue comment on the PR, writes through gh api),
+#     and changing its factory2 labels.
+#     Corrections and the /approve on that PR come only from the person; factory posts through
+#     scripts/pr.sh, which marks its comments as its own.
 # It splits the command the way a shell does (quotes, escapes, here-documents, `;`, `&&`, `|`, subshells,
 # `bash -c` and `eval`) and checks the command words, so quoting a branch name doesn't get past it, and a
 # commit message, an echo or a here-document that mentions these commands doesn't trigger it.
@@ -28,7 +33,7 @@ dir="${cwd:-$FACTORY_ROOT_DIR}"
 current="$(git -C "$dir" symbolic-ref --short -q HEAD 2>/dev/null)"
 default_branch="$(cfg '.project.default_branch')"
 
-deploy_guard() { # blocks ship.deploy / ship.rollback outside an approved stage 7 (or 8 for rollback)
+deploy_guard() { # blocks ship.deploy outside an evidence-approved stage 7, ship.rollback outside stage 7-8
   local norm dep rb slug run stage
   norm="$(printf '%s' "$command" | tr -s ' \t\n' '   ')"
   dep="$(cfg '.ship.deploy' | tr -s ' \t\n' '   ')"
@@ -38,15 +43,13 @@ deploy_guard() { # blocks ship.deploy / ship.rollback outside an approved stage 
   stage=""; [ -n "$slug" ] && stage="$(jq -r '.stage // empty' "$run/state.json" 2>/dev/null)"
   matches() { [ "${#1}" -ge 4 ] && [ "$1" != "..." ] && case "$norm" in *"$1"*) return 0 ;; esac; return 1; }
   if matches "$dep"; then
-    if [ "$stage" = "7" ] && [ -n "$(jq -r '.approvals.deploy.sha // empty' "$run/state.json" 2>/dev/null)" ]; then return 0; fi
-    echo "Blocked by factory guardrail: this is the project's deploy command (ship.deploy). Deploys run only in stage 7 of /factory2:run, after the person confirms (state.sh approve deploy). To deploy by hand, run it yourself outside Claude." >&2
+    if [ "$stage" = "7" ] && [ -n "$(jq -r '.approvals.evidence.sha // empty' "$run/state.json" 2>/dev/null)" ]; then return 0; fi
+    echo "Blocked by factory guardrail: this is the project's deploy command (ship.deploy). Deploys run only in stage 7 of /factory2:run, after the person has approved the evidence. To deploy by hand, run it yourself outside Claude." >&2
     exit 2
   fi
   if matches "$rb"; then
-    case "$stage" in
-      7|8) [ -n "$(jq -r '.approvals.rollback.sha // empty' "$run/state.json" 2>/dev/null)" ] && return 0 ;;
-    esac
-    echo "Blocked by factory guardrail: this is the project's rollback command (ship.rollback). Rollbacks run in stage 7-8 of /factory2:run after the person approves (state.sh approve rollback)." >&2
+    case "$stage" in 7|8) return 0 ;; esac
+    echo "Blocked by factory guardrail: this is the project's rollback command (ship.rollback). Rollbacks run only in stage 7-8 of /factory2:run, for the run that deployed." >&2
     exit 2
   fi
 }
@@ -210,8 +213,43 @@ function check(w, nw, depth,   i, t, prog, j, s, husky) {
   }
   if (prog == "git") check_git(w, nw, i + 1, husky)
   else if (prog == "rm") check_rm(w, nw, i + 1)
+  else if (prog == "gh") check_gh(w, nw, i + 1)
   else if (prog == "pkill" || prog == "killall")
     block(prog " stops every process with that name, the user's own included: stop the processes you started by their pid (kill <pid>)")
+}
+
+function check_gh(w, nw, i,   g, k, t, write, path, body) {
+  if (pr == "") return
+  while (i < nw && w[i] ~ /^-/) { if (w[i] ~ /^(-R|--repo|--hostname)$/) i++; i++ }
+  if (i >= nw) return
+  g = w[i++]
+  if (g == "pr" && i < nw && (w[i] == "comment" || w[i] == "review"))
+    block("gh pr " w[i] ": comments and reviews on the run's PR come from the person (corrections, /approve); factory posts through scripts/pr.sh (publish note)")
+  if ((g == "pr" || g == "issue") && i < nw && w[i] == "edit") {
+    for (k = i + 1; k < nw; k++) if ((w[k] ~ /^--(add|remove)-label/ && (w[k] ~ /factory2/ || (k + 1 < nw && w[k + 1] ~ /factory2/))))
+      block("factory2 labels on the run's PR say which approvals wait and which were given; only scripts/pr.sh sets them")
+  }
+  if (g == "issue" && i < nw && w[i] == "comment") {
+    for (k = i + 1; k < nw; k++) if (w[k] == pr || w[k] == "#" pr || w[k] ~ ("/(pull|issues)/" pr "$"))
+      block("gh issue comment on the run's PR #" pr ": factory posts there through scripts/pr.sh (publish note)")
+    return
+  }
+  if (g != "api") return
+  write = 0; path = ""; body = ""
+  for (k = i; k < nw; k++) {
+    t = w[k]
+    if (t ~ /^(-f|-F|--field|--raw-field|--input)$/) { write = 1; body = body " " w[k + 1]; k++; continue }
+    if (t ~ /^(-f|-F).+/ || t ~ /^--(field|raw-field|input)=/) { write = 1; body = body " " t; continue }
+    if (t == "-X" || t == "--method") { if (toupper(w[k + 1]) != "GET") write = 1; k++; continue }
+    if ((t ~ /^-X./ && toupper(substr(t, 3)) != "GET") || (t ~ /^--method=/ && toupper(substr(t, 10)) != "GET")) { write = 1; continue }
+    if (t ~ /^(-H|--header|-q|--jq|-t|--template|--hostname|--cache|-p|--preview)$/) { k++; continue }
+    if (t !~ /^-/ && path == "") path = t
+  }
+  if (!write) return
+  if (path ~ ("(^|/)issues/" pr "/labels")) block("factory2 labels on the run's PR are set only by scripts/pr.sh")
+  if (path ~ /(^|\/)pulls\/[0-9]+\/(reviews|comments)/ || path ~ /(^|\/)(issues|pulls)\/comments\/[0-9]+/ || path ~ ("(^|/)issues/" pr "/comments") \
+      || (path == "graphql" && body ~ /(addComment|addPullRequestReview|submitPullRequestReview|updateIssueComment|updatePullRequestReview)/))
+    block("writing PR comments or reviews through gh api while the run is tracked on PR #" pr ": corrections and /approve come from the person; factory posts through scripts/pr.sh")
 }
 
 function protected_branch(b) {
@@ -307,7 +345,12 @@ AWK
 
 h="${HOME:-}"
 h="${h%/}"
-reason="$(printf '%s' "$command" | awk -v home="$h" -v current="$current" -v extra="$default_branch" "$program")"
+pr=""
+slug="$(factory_active_slug)"
+if [ -n "$slug" ] && [ "$(state_get '.review_via // empty' "$slug" 2>/dev/null)" = pr ]; then
+  pr="$(state_get '.pr // empty' "$slug" 2>/dev/null | tr -cd '0-9')"
+fi
+reason="$(printf '%s' "$command" | awk -v home="$h" -v current="$current" -v extra="$default_branch" -v pr="$pr" "$program")"
 if [ -n "$reason" ]; then
   echo "Blocked by factory guardrail: $reason" >&2
   exit 2

@@ -11,7 +11,8 @@
    and content: auth, payments, personal data, crypto, migrations, public API, concurrency,
    dependency files). Record it: `state.sh history '.depth = $d' --arg d <lite|full>`.
 5. **Lenses**, one read-only batch, in parallel, each briefed with the base, the spec paths, the
-   learnings, and its own lens only:
+   learnings, and its own lens only (`reviewer-spec` also gets the implementers' `deviations` from
+   the approved plan.md, to judge whether each still meets the spec):
    - lite: `reviewer-correctness`, `reviewer-spec`.
    - full: plus `reviewer-security` (Fable 5.1 by default) and `reviewer-maintainability` (advisory).
      If the security spawn fails because the model isn't available to the account (Fable 5.1 isn't

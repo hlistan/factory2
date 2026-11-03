@@ -3,21 +3,22 @@
 A Claude Code plugin that runs one feature at a time through eight stages, with human gates and
 self-learning:
 
-1. **Analyze and plan.** A product-level PRD with EARS acceptance criteria, a `contract.json` and an
-   advisory `plan.md`.
-2. **PRD review.** A separate reviewer agent, then you.
+1. **Analyze and plan.** A draft PR opens with the request, and every planning step is committed and
+   announced there. A product-level PRD with EARS acceptance criteria, a `contract.json` and a
+   `plan.md` saying how it will be built (approach, decisions, steps, risks).
+2. **PRD review.** A separate reviewer agent, then you on the PR: comments are corrections, and
+   `/approve` approves the PRD and plan.
 3. **Fix the PRD.** Revise and loop back to 2; lessons are captured.
 4. **Implement, tests first.** Tests, a red check, a test review, a freeze of the tests
-   and the check-defining files, then code at low effort, re-run fresh at high on failure; docs; a
-   draft PR.
+   and the check-defining files, then code at low effort, re-run fresh at high on failure; docs.
 5. **Review and fix.** Correctness, spec, security and maintainability lenses, a challenger, and a QA
    agent that drives the app; every fix starts with a failing test.
 6. **Evidence.** Screenshots per viewport and a video with a chapter per criterion, in a review pack for
    you. Comments are routed as spec gap, defect or cosmetic.
-7. **Merge and deploy**, after your confirmation, then a smoke test.
+7. **Merge and deploy** once you've approved the evidence, then a smoke test. No further approval.
 8. **Monitor.** An anomaly files an issue first; the fix is a new bugfix run
-   (`/factory2:run --issue <ref>`) through every stage and gate. Rollback is a separate mitigation you
-   approve.
+   (`/factory2:run --issue <ref>`) through every stage and gate. A rollback is a mitigation, run without
+   an approval when the smoke test fails or the triager recommends it.
 
 Every agent runs on Opus 5.5 at medium effort, except:
 
@@ -68,7 +69,7 @@ harness, not an agent, decides that a criterion passes.
   fast checks fail. In singularity's words, the guards are "a seatbelt against mistakes, not a security
   boundary": the hash checks detect what the hooks can't prevent.
 - Read-only agents are checked by hashing the working tree before and after.
-- Deploy and rollback commands are blocked outside an approved stage 7.
+- The deploy command is blocked outside stage 7 with the evidence approved; rollback outside stage 7–8.
 - Gate hooks fail closed: a guard that crashes or hangs blocks the action inside a factory2 project
   (`scripts/gate.sh`), instead of Claude Code's default of letting it through.
 - Agents never write their own memory. The orchestrator records one calibration line per miss in the

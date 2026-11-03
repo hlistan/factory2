@@ -15,17 +15,17 @@ produces, and how it learns from your feedback.
 
 ```mermaid
 flowchart TD
-    R([Feature request]) --> S1[1 Analyze and plan<br/>planner writes PRD, contract, plan]
-    S1 --> S2{2 PRD review<br/>prd-reviewer, then YOU}
+    R([Feature request]) --> S1[1 Analyze and plan<br/>draft PR opens; planner writes PRD, contract, plan]
+    S1 --> S2{2 PRD review<br/>prd-reviewer, then YOU on the PR}
     S2 -- changes --> S3[3 Fix PRD<br/>planner revises, lessons recorded]
     S3 --> S2
-    S2 -- approve --> S4[4 Implement<br/>tests first, freeze, code, docs, draft PR]
+    S2 -- approve --> S4[4 Implement<br/>tests first, freeze, code, docs]
     S4 --> S5[5 Review and fix<br/>4 lenses, challenger, QA in a browser]
     S5 --> S6{6 Evidence<br/>screenshots and video, then YOU}
     S6 -- spec gap --> S2
     S6 -- defect --> S5
     S6 -- cosmetic --> S6
-    S6 -- approve --> S7{7 Merge and deploy<br/>YOU confirm deploy}
+    S6 -- approve --> S7[7 Merge and deploy<br/>smoke test]
     S7 --> S8[8 Monitor]
     S7 -- smoke fails --> I
     S8 -- anomaly --> I[Issue filed first<br/>factory-incident]
@@ -44,8 +44,9 @@ Three rules hold the whole thing together:
 2. **Tests come before code, and then they're frozen.** The tests and the files that define "the checks"
    (`package.json`, runner and lint configs, CI, `.factory/config.yaml`) are hashed before any product
    code exists. The implementer can't change them to make the work pass.
-3. **You approve three things:** the PRD (stage 2), the evidence (stage 6) and the deploy (stage 7).
-   Each approval is tied to a commit, and going back a stage cancels it.
+3. **You approve two things, both on the PR:** the plan (stage 2: what will be built and how, before
+   any code) and the evidence (stage 6: what was built, before merge). Merge, deploy and any rollback
+   follow without asking. Each approval is tied to a commit, and going back a stage cancels it.
 
 ### Who does what
 
@@ -134,7 +135,8 @@ then on, everything for the run lives in three places:
 
 | Where | What | In git? |
 |---|---|---|
-| `docs/specs/<slug>/` | `prd.md`, `contract.json`, `plan.md`, `feedback/` | Committed |
+| The run's draft PR | Every planning step as a comment; the artifacts, approvals and review ledger in its description | On GitHub |
+| `docs/specs/<slug>/` | `request.md`, `prd.md`, `contract.json`, `plan.md`, `reviews/`, `feedback/` | Committed |
 | `.factory/history/<slug>.json` | The run's measurement record and lesson lines | Committed |
 | `.factory/runs/<slug>/` | State, freeze hashes, reports, logs, evidence | Ignored |
 
@@ -150,33 +152,65 @@ each run gets its own branch and dev-server port.
 > written first and must fail on today's code. The PR says `Fixes #<n>`, so merging closes the issue.
 
 1. Updates the default branch, then creates `factory/<slug>` and records its base commit.
-2. `learnings-researcher` pulls relevant past lessons from `docs/solutions/`.
-3. Optionally, `researcher` answers outside questions (an API's limits, a standard).
-4. `planner` writes:
+2. **Opens the draft PR.** Your request is committed as `request.md`, the branch is pushed, and the
+   draft PR opens (`ship.pr_open`). From here you can follow everything on the PR: each planning step is
+   committed, pushed and announced in a comment that says what was added or changed, with a compare
+   link. The PR description lists the artifacts, the approvals and a review ledger. (With
+   `review.via: terminal`, or without gh, its login or an `origin` remote, the gates stay in the
+   terminal and the PR opens at stage 4.)
+3. `learnings-researcher` pulls relevant past lessons from `docs/solutions/`.
+4. Optionally, `researcher` answers outside questions (an API's limits, a standard).
+5. `planner` writes:
    - **`prd.md`**, at product level: the problem, users, scope and non-goals, UX flows including empty,
      loading, error and permission states, and acceptance criteria in EARS form ("WHEN … THE SYSTEM
      SHALL …"), each with the test level that will prove it. Also NFRs, risks, rollout, and the
      monitoring signals.
    - **`contract.json`**: one entry per criterion, with `passes: false`.
-   - **`plan.md`**: implementation steps (advisory), plus an `## Exceptions` list for any dependency or
-     check-file change the work genuinely needs.
-5. Commit: `factory(<slug>): 1 plan`.
+   - **`plan.md`**: how it will be built, written for you to approve: a summary of what will be built,
+     the approach (components and files changed, data and schema changes, interfaces), the decisions
+     with the alternatives rejected, steps mapped to criteria (tests first), the files touched, the
+     risks, and an `## Exceptions` list for any dependency or check-file change the work genuinely
+     needs. Once you approve it, the implementer follows it and reports any deviation with its reason.
+6. Commit `factory(<slug>): 1 plan`, push, and comment on the PR: the files added, the number of
+   criteria, the planner's open questions (answer them in a PR comment), and the plan itself in a
+   collapsed section.
 
 ### Stage 2: PRD review (⏸ your gate)
 
 1. `prd-reviewer` reviews the PRD in a fresh context. Is each criterion testable? Are all the states
    covered? Does every quoted figure appear in its cited source?
-2. **You see** the criteria list, the reviewer's findings by severity, and the open questions. Choose:
-   - **Approve**: the approval is recorded against the current commit, and the run moves to stage 4.
-   - **Request changes**: type your comments. They're saved word for word to
-     `docs/specs/<slug>/feedback/prd-<n>.md` and go to stage 3.
-   - **Stop**: the run pauses. Resume it later with `/factory2:run <slug>`.
-3. If you approve while the reviewer still has blocking findings, you're asked once more, and the
-   override is recorded in history.
+2. The reviewer's findings are posted on the PR, grouped by severity, and saved to
+   `reviews/prd-review-<n>.json`. With blocking findings the run goes straight to stage 3; you don't
+   have to wait for a request to comment.
+3. **Your gate is on the PR.** When the reviewer has nothing blocking, factory posts an **approval
+   request** naming the commit, and waits. The request itself shows **what will be built** (every
+   acceptance criterion) and **how the planner proposes to build it** (`plan.md` in full: summary,
+   approach, decisions, steps, files, risks), plus any open questions, so you can decide from the
+   comment.
+   - **Correct**: comment on the PR, in the conversation or inline on `prd.md` or `plan.md`. Each
+     comment is saved word for word, with its author, link and line, to
+     `docs/specs/<slug>/feedback/prd-<n>.md`, and goes to stage 3. factory replies to say it received them.
+   - **Approve**: reply with a comment whose first line is `/approve`. Anything after that line is
+     saved as notes for the run. The approval holds for the named commit only: if anything was pushed
+     after it, or a correction arrives in the same batch, factory says so and asks again. If the
+     reviewer still has blocking findings, the request says so and your `/approve` is recorded as an
+     override.
+   - Only comments from people in `review.reviewers` count (default: the repository's owners, members
+     and collaborators). Anyone else's comments are ignored, and you're told about them.
+   - factory can't approve for you: approving in the terminal is refused on a PR run, and the guard
+     blocks Claude from posting comments or reviews on the PR except through `pr.sh`, which marks
+     its own comments.
+   - **Stop**: tell Claude in the terminal. Resume later with `/factory2:run <slug>`; the comments
+     you leave in the meantime are read when it resumes.
+4. With `review.via: terminal`, you see the criteria list, the plan's summary, approach and decisions,
+   the reviewer's findings and the open questions in Claude Code instead, and approve, request changes or stop there. Approving with
+   blocking findings open asks once more and records the override.
 
 ### Stage 3: fix PRD (automatic, loops back to 2)
 
-The planner revises all three files and answers each finding: what changed, or why it disagrees. Then
+The planner revises all three files and answers each finding and each of your corrections: what
+changed, or why it disagrees. The revision and its answers are posted on the PR with the changed files,
+and the review ledger in the PR description marks each finding fixed, declined or open. Then
 the lessons are recorded (§6.2):
 
 - Something **you** caught that the reviewer missed becomes a lesson line for `prd-reviewer`.
@@ -197,7 +231,7 @@ After `limits.prd_rounds` rounds (3 by default), the orchestrator stops and asks
 | After 4b | Verifies the freeze, runs all checks, and syncs `passes` in `contract.json` from the JUnit reports | `verify-freeze`, `run-checks.sh`, `contract-sync` |
 | Retry | On failure: a **fresh** implementer at **high**, briefed with the failure report; up to 2 retries, then you | — |
 | 4c Docs | README, docs, CHANGELOG | Fast checks |
-| 4d Draft PR | Push, then `ship.pr_open` (default `gh pr create --draft --fill`) | — |
+| 4d PR | Push and refresh the PR description (a terminal run opens the draft PR here with `ship.pr_open`) | — |
 
 A criterion counts as passing only when at least one test names it and every test that names it passed.
 
@@ -239,7 +273,9 @@ Advisory findings are not fixed automatically; you see them at the stage 6 gate.
 2. A **review pack** is built at `.factory/runs/<slug>/review-pack/index.html`. For each criterion it
    shows the text, its tests, pass or fail, the screenshots and the video chapter. It also lists the
    advisory findings, spend so far and the PR link.
-3. **You** approve, comment or stop. The `triager` sorts each comment:
+3. **You** approve or comment on the PR: factory posts an approval request with the pack's link
+   (when `evidence.publish` is set), the criteria table and the advisory findings. Reply `/approve`, or
+   comment. The `triager` sorts each comment:
 
    | Class | Meaning | Where it goes |
    |---|---|---|
@@ -249,17 +285,18 @@ Advisory findings are not fixed automatically; you see them at the stage 6 gate.
 
 4. On approval, the approved commit is recorded and the PR is marked ready.
 
-### Stage 7: merge and deploy (⏸ your gate) *(M6)*
+### Stage 7: merge and deploy *(M6)*
 
 1. Merges `origin/<default>` into the branch. On a conflict it stops and asks you.
 2. Folds the run's lesson lines into each agent's memory and commits only those files. **You see the
    added lines.**
 3. `ship.sh verify` checks that every commit after your evidence approval is either a clean merge from
    main or the memory fold. Anything else sends the run back to stage 6.
-4. Merges the PR, then **asks you to confirm the deploy**, showing the deploy and rollback commands.
-   Deploy and rollback commands are blocked by a hook unless that approval is recorded.
-5. Runs the smoke tests. If they fail, it **files an issue first**, then asks whether to roll back, and
-   offers a bugfix run for the issue. The change is already merged, so the run itself doesn't go back.
+4. Merges the PR and deploys, without asking again: your evidence approval covers it. A hook blocks
+   the deploy command outside stage 7 or without that approval. The deployed commit and the smoke
+   result are noted on the PR.
+5. Runs the smoke tests. If they fail, it **files an issue first**, rolls back (when `ship.rollback` is
+   set) and comments that on the issue and the PR, and offers a bugfix run for the issue. The change is already merged, so the run itself doesn't go back.
 6. **For a bugfix run:** comments the deploy on the issue (the merge closed it), writes the postmortem
    (§6.2), and records lesson lines for the agents of the run that shipped the bug.
 
@@ -325,7 +362,8 @@ Choose a scheduler with `monitor.scheduler`:
    `triager` correlates it with the deploy commit and the diff, and **posts its diagnosis on the issue**:
    how likely the deploy caused it, a proposed reproduction written as a regression criterion, and
    whether to roll back.
-3. **Mitigate (optional).** A rollback needs your explicit yes and is commented on the issue.
+3. **Mitigate.** If the triager recommends a rollback, factory rolls back (unless `auto_rollback` already
+   did) and comments it on the issue. No approval is asked.
 4. **Fix through the normal flow.** You start `/factory2:run --issue <ref>` (in `claude --worktree` while
    the original run is still being monitored). It's a full run: bugfix PRD and your PRD approval, a
    failing regression test first, review, evidence and your approval, then deploy. Merging closes the
@@ -343,17 +381,40 @@ started yet.
 
 ## 5. Controlling results
 
-### 5.1 Your three gates
+### 5.1 Your gates
 
-| Gate | You are approving | Recorded as | Cancelled when |
+There are two gates, and both are on the run's PR: factory posts an approval request naming a commit, and you
+reply with a comment whose first line is `/approve`. A comment without `/approve` is a correction. If
+corrections arrive together with an `/approve`, the corrections win and factory asks again. factory
+can't approve for you: `state.sh approve` refuses an approval without your PR comment, and the guard
+blocks Claude from posting comments, reviews or `factory2` labels on the PR except through `pr.sh`.
+
+| Gate | You are approving | Holds for | Cancelled when |
 |---|---|---|---|
-| PRD (stage 2) | What will be built and how it will be judged | `approvals.prd` with the commit SHA | The run goes back to stage 2 or earlier |
-| Evidence (stage 6) | What was built, as shown in the review pack | `approvals.evidence` with the SHA | It goes back to stage 6 or earlier, or a commit other than a main merge or the memory fold lands after it |
-| Deploy (stage 7) | Running `ship.deploy` | `approvals.deploy` | It goes back to stage 7 or earlier |
-| Rollback (stage 7) | Running `ship.rollback` | `approvals.rollback` | Same |
+| Plan (`prd`, stage 2) | What will be built (the criteria) and how (`plan.md`), shown in the request | The pushed branch head the request names | The run goes back to stage 2 or earlier, or anything is pushed before you approve |
+| Evidence (stage 6) | What was built, as shown in the review pack; this also lets merge and deploy run | The pushed branch head | It goes back to stage 6 or earlier, or a push before you approve, or a commit other than a main merge or the memory fold lands after it |
 
-Silence or an earlier approval never counts. Free-text comments are always saved word for word under
-`docs/specs/<slug>/feedback/`.
+Deploy and rollback are not gates. Stage 7 deploys after the merge, and a rollback runs when the smoke
+test fails or the triager recommends one. The guard still blocks the deploy command outside stage 7
+with the evidence approved, and the rollback command outside stage 7–8.
+
+Each is recorded in `approvals.<gate>` with the commit, your login and the comment's link.
+
+**Finding what waits for you.** The PR carries labels:
+
+| Label | Means |
+|---|---|
+| `factory2` | A factory2 run's PR |
+| `factory2:awaiting-approval` | An approval request waits for your `/approve` (any gate) |
+| `factory2:awaiting-<gate>` | The same, per gate: `prd` (the plan), `evidence` |
+| `factory2:approved-<gate>` | That approval is held; removed if the run goes back past the gate |
+
+`gh pr list --label factory2:awaiting-approval` (or the same filter in GitHub's PR list) shows every
+run waiting for someone. The PR description also links the waiting request.
+
+Silence or an earlier approval never counts. Comments are always saved word for word under
+`docs/specs/<slug>/feedback/`. With `review.via: terminal` (or without gh, its login or an `origin`
+remote) the same gates are asked in Claude Code instead, and there are no labels.
 
 **The PRD gate is the cheapest place to steer.** Everything downstream is judged against the acceptance
 criteria, so a missing state ("what does the empty list look like?") is far cheaper to add here than at
@@ -367,7 +428,7 @@ stage 6.
 | Read-only roles | Reviewers, QA, challenger and triager changing files | A hook blocks their edits. The working tree is hashed before and after each read-only batch; a change is stashed and logged as an incident. |
 | Spec and state protection | Agents editing the PRD, the run state, the history or Claude Code's settings during a run | Hook |
 | Agent memory | Agents writing their own memory | Hook. Only the harness writes it, at stage 7. |
-| Bash guard | Force-push or deleting a protected branch, skipping git hooks (`--no-verify`, `HUSKY=0`), `rm -rf` of `/` or home, `pkill`/`killall`, and deploy or rollback outside an approved stage 7 | Hook, always on (not only during a run); sees through quoting, `bash -c`, `eval`, `command`, `exec` and `xargs` |
+| Bash guard | Force-push or deleting a protected branch, skipping git hooks (`--no-verify`, `HUSKY=0`), `rm -rf` of `/` or home, `pkill`/`killall`, deploy outside stage 7 with the evidence approved, rollback outside stage 7–8, and, while a run is tracked on a PR, posting or editing comments and reviews there or changing its `factory2` labels (`gh pr comment`, `gh pr review`, `gh pr edit --add-label`, `gh api` writes) | Hook, always on (not only during a run); sees through quoting, `bash -c`, `eval`, `command`, `exec` and `xargs` |
 | Fail closed | A guard crashing or hanging and letting the action through | `gate.sh` turns a crash or timeout into a block inside factory2 projects |
 | Fresh retries | A retry inheriting the failed attempt's wrong assumptions | Each retry is a new agent, briefed with the failure report |
 
@@ -396,6 +457,8 @@ The commits are labelled by sub-phase, so the PR reads in order:
 | `limits.review_rounds` | 2 | Asks you, with the open findings |
 | `limits.evidence_rounds` | 3 | Asks you |
 | `limits.budget_usd` | 60 | Pauses at the next gate |
+| `review.via` | `pr` | `pr`: the draft PR opens at the start, and every gate is held there (comments, `/approve`, labels). `terminal`: gates in Claude Code |
+| `review.reviewers` | `[]` | GitHub logins whose PR comments count; empty means the repository's owners, members and collaborators |
 
 Each escalation is recorded in history, so `/factory2:stats` can show where runs get stuck.
 
@@ -539,7 +602,7 @@ agent prompt changes. The seed case, a PRD with no empty-state criterion, scored
                                          baseline-failures, reports/, evidence/, review-pack/,
                                          stop-gate.log, gate-errors.log
   incidents/I-<n>.md         ignored     incident issues when monitor.report is file (M6)
-docs/specs/<slug>/           committed   prd.md, contract.json, plan.md, feedback/
+docs/specs/<slug>/           committed   request.md, prd.md, contract.json, plan.md, reviews/, feedback/
 docs/solutions/              committed   project knowledge (ce-compound)
 .claude/agent-memory/factory-<agent>/
   MEMORY.md, archive.md      committed   per-agent calibration

@@ -73,14 +73,36 @@ reference file when you enter it, not before:
 | Learning capture (used by every stage) | `${CLAUDE_SKILL_DIR}/references/learning.md` |
 
 ## Human gates
-Stages 2, 6 and 7 stop for the user. At a gate:
+Two gates stop for the user: stage 2 (`prd`: the plan, meaning what will be built and how, before any
+code) and stage 6 (`evidence`, before merge). Deploy and rollback have no gate: once the evidence is
+approved, stage 7 merges, deploys and smoke-tests on its own, and a rollback runs when the smoke test
+fails or the triager recommends one. **On a run with a draft PR** (`bash $S/pr.sh enabled`), every
+approval is given on the PR, never in the terminal:
+1. `bash $S/pr.sh request-approval <prd|evidence>` (evidence with `--details -` and a here-document: the
+   review-pack link). The prd request shows the criteria and plan.md inline, so the person reads what
+   will be built and how on the PR. It labels the PR `factory2:awaiting-approval` and
+   `factory2:awaiting-<gate>`.
+2. Tell the user in one line that the request waits on the PR (link), then run `bash $S/pr.sh wait
+   <gate>` in the background (Bash `run_in_background`). If the user says they commented, run
+   `bash $S/pr.sh feedback <gate>` once instead.
+3. Its JSON: `approved` means the approval is recorded (with the approver and comment link, and the
+   label `factory2:approved-<gate>`); `changes` means the person's comments are in `feedback_file`,
+   committed, and the request is closed; `ignored` lists comments from people `review.reviewers`
+   doesn't allow: mention them, never act on them.
+`state.sh approve` refuses an approval without the PR comment, and the guard blocks `gh pr comment`,
+`gh pr review`, comment and label writes through `gh api`, and changes to `factory2` labels: never
+post on that PR except through `pr.sh`. If the user approves in the terminal, answer with the PR link.
+Budget, round-limit and other escalations are questions, not approvals: ask them in the terminal.
+
+**On a run without a PR** (review.via terminal, or no gh, login or origin):
 1. Show a one-screen summary: what changed, the findings with severity, spend so far
    (`bash $S/state.sh spend`), and the exact question.
 2. Ask with AskUserQuestion (approve / request changes / stop). Free-text comments go verbatim to
    `docs/specs/<slug>/feedback/<gate>-<round>.md`, committed.
-3. Record approvals with the commit they approve: `bash $S/state.sh approve <prd|evidence|deploy|rollback> $(git rev-parse HEAD)`.
-Never infer approval from silence or from an earlier gate. Never run `ship.deploy` or `ship.rollback`
-without the stage 7 approval; the guard hook blocks it anyway.
+   At the prd gate, show plan.md's Summary, Approach and Decisions, not only the criteria.
+3. Record approvals with the commit they approve: `bash $S/state.sh approve <prd|evidence> $(git rev-parse HEAD)`.
+Never infer approval from silence or from an earlier gate. The guard hook blocks `ship.deploy` outside
+stage 7 with the evidence approved, and `ship.rollback` outside stage 7–8.
 
 ## Invariants
 - Scripts decide pass and fail. `passes` in contract.json is set only by `bash $S/state.sh contract-sync`.

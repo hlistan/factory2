@@ -23,7 +23,10 @@ Apply the review-rubric skill's **PRD** section in order:
 3. Scope: non-goals stated; nothing in the criteria that the non-goals exclude; rollout and flag defined.
 4. Monitoring: signals that would show the feature broken in production, with a threshold.
 5. Contract consistency: contract.json has exactly the PRD's criteria, ids AC-1..AC-n, `passes: false`.
-6. plan.md: steps put tests first; Exceptions names every dependency or check-file change the plan needs.
+6. plan.md: concrete enough for the person to approve: the Summary matches the request; the Approach
+   names components and files that exist (or says they are new) and covers data changes; real choices
+   are under Decisions with alternatives; every criterion is covered by a step; steps put tests first;
+   Exceptions names every dependency or check-file change the plan needs.
 7. Only when the PRD quotes a figure or a source: the figure is in the cited source, with class and n.
 
 Use the code (Read, Grep, git log) to check claims about what exists. Each finding must say what is

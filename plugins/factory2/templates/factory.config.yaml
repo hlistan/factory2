@@ -66,9 +66,20 @@ ship:
   pr_open: "gh pr create --draft --fill"
   pr_ready: "gh pr ready"
   merge: "gh pr merge --squash"
-  deploy: ""                # e.g. "make deploy-prod"; the guard blocks it outside an approved stage 7
+  deploy: ""                # e.g. "make deploy-prod"; the guard blocks it outside stage 7 with the evidence approved
   smoke: ""                 # e.g. "BASE_URL=https://example.com npx playwright test --grep @smoke"
   rollback: ""              # e.g. "make rollback-prod"
+
+review:
+  via: pr                   # pr: the run opens its draft PR at the start; you follow it there, correct with
+                            # PR comments, and give both approvals by replying /approve: the plan (what
+                            # will be built and how, shown in the request) and the evidence before merge.
+                            # Deploy and rollback need none. Labels: factory2:awaiting-approval (and
+                            # -awaiting-<gate>) while one waits, factory2:approved-<gate> once given.
+                            # terminal: gates are asked in Claude Code. pr needs gh, its login and an origin.
+  reviewers: []             # GitHub logins whose comments count; empty: the repository's owners, members
+                            # and collaborators. Anyone else's comments are ignored and reported.
+  poll_seconds: 60          # how often a waiting run checks the PR for comments
 
 monitor:
   window_hours: 24

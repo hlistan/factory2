@@ -4,8 +4,8 @@
 
 Production problems never reopen a finished run. Whatever finds one (smoke tests at stage 7, monitoring
 at stage 8, a person) **files an issue first**, and the fix goes through a new **bugfix run**
-(`/factory2:run --issue <ref>`) with every stage and gate. A rollback is a mitigation the user approves
-separately; it doesn't replace the fix.
+(`/factory2:run --issue <ref>`) with every stage and gate. A rollback is a mitigation that needs no
+approval; it doesn't replace the fix.
 
 ## Stage 7 (`state.sh stage 7`, `phase ship`)
 1. Update from main: `git fetch origin && git merge --no-edit origin/<default_branch>`. A conflict: stop
@@ -16,15 +16,15 @@ separately; it doesn't replace the fix.
    SHA is a conflict-free merge of origin/main or the fold commit. Any other commit means the evidence
    no longer matches: back to stage 6.
 4. Push, then `bash $S/ship.sh merge`.
-5. Deploy gate: show the deploy command (`ship.deploy`), the PR, and the rollback command; ask the user.
-   Only on an explicit yes: `bash $S/state.sh approve deploy $(git rev-parse HEAD)` and
-   `bash $S/ship.sh deploy`. Then `bash $S/ship.sh smoke`.
+5. Deploy, without another approval (the evidence approval covers it): `bash $S/ship.sh deploy` and
+   `bash $S/ship.sh smoke`. On a PR run, `bash $S/pr.sh publish note` with the deployed commit and the
+   smoke result.
 6. **Smoke fails** (the change is already merged, so it can't go back to stage 5):
    1. File the issue first: `bash $S/monitor.sh issue --source smoke --output <smoke output file>`. It
       prints the issue reference; record it:
       `bash $S/state.sh history '.incidents += [{issue: $i, source: "smoke", at: $at}]' --arg i <ref> --arg at "$(date -u +%Y-%m-%dT%H:%M:%SZ)"`.
-   2. Ask the user whether to roll back. On yes: `bash $S/state.sh approve rollback` and
-      `bash $S/ship.sh rollback`, then comment the rollback on the issue.
+   2. Roll back when `ship.rollback` is set: `bash $S/ship.sh rollback`, then comment the rollback on
+      the issue (and on the PR with `pr.sh publish note`) and tell the user.
    3. Finish this run as in step 7 (its history says what happened), and offer
       `/factory2:run --issue <ref> ` for the fix.
 7. Success: `bash $S/ship.sh mark` records the deploy SHA, time and monitor baseline. Write the run's
@@ -43,8 +43,8 @@ separately; it doesn't replace the fix.
      `state.sh history '.escape = {caused_by: $c, stage_missed: $m}' --arg c <slug> --arg m <stage that should have caught it>`.
 
 ## Stage 8 (`state.sh stage 8`, `phase monitor`)
-1. The run keeps this checkout while it is watched: a rollback is approved against it, and the deploy
-   guard allows `ship.rollback` only for the active run at stage 7–8 with that approval. A bugfix run
+1. The run keeps this checkout while it is watched: the deploy guard allows `ship.rollback` only for
+   the active run at stage 7–8. A bugfix run
    started meanwhile goes in a parallel session (`claude --worktree`); after the window, in this checkout.
 2. `bash $S/monitor.sh --once <slug>`: runs `monitor.checks`, compares with the baseline; exit 0
    healthy, 1 anomaly (an issue was filed), 2 config error.
@@ -60,8 +60,8 @@ separately; it doesn't replace the fix.
    2. Post its `issue_comment` on the issue (`gh issue comment <n> --body-file <file>`, or append it to
       the local file) and record it in the run's history:
       `state.sh history '.incidents += [{issue: $i, source: "monitor", at: $at}]' …`.
-   3. If it recommends a rollback, ask the user; only on yes: `approve rollback`, `ship.sh rollback`,
-      and comment the rollback on the issue.
+   3. If it recommends a rollback: `ship.sh rollback` (unless `monitor.auto_rollback` already did),
+      comment the rollback on the issue, and tell the user.
    4. Offer `/factory2:run --issue <ref>` for the fix, in `claude --worktree` while this run is still
       being watched. Don't start it unasked.
 5. When `monitor.window_hours` pass, record `state.sh history '.monitor_done = $at' --arg at …`, run

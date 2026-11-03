@@ -7,8 +7,9 @@ user-invocable: false
 # PRD format (docs/specs/<slug>/)
 
 A factory spec is three files. The PRD is **product level**: what and why, observable behaviour, never
-implementation. Errors in the spec cascade into every later stage, so keep technical choices in plan.md,
-which is advisory.
+implementation. Errors in the spec cascade into every later stage, so keep technical choices in plan.md.
+The person approves the PRD and plan.md together, before any code: plan.md is how they see what will be
+built and how, so it must be concrete enough to disagree with.
 
 ## prd.md
 ```markdown
@@ -84,13 +85,27 @@ afterwards only the harness (`state.sh contract-sync`) changes `test_ids` and `p
                "test_ids": [], "passes": false}]}
 ```
 
-## plan.md (advisory)
+## plan.md (the approved approach)
+Written for the person who approves it: plain sentences, real names from the code (read it; don't guess
+what exists), no filler. The PR shows it inline in the approval request.
 ```markdown
 # Plan: <slug>
+## Summary
+What will be built, in 3–5 sentences a non-author can check against the request.
+## Approach
+How: the components, modules or endpoints added or changed and what each does; data and schema
+changes (with migrations); interfaces and contracts between parts; how a request or event flows
+through them. Name existing code it builds on (`path/to/file.ts`, `ClassName`).
+## Decisions
+Each real choice: what was chosen, the alternatives considered, and why. "None" is fine for a small change.
 ## Steps
-1. <small, verifiable step> — verify: <command or observable result>
+1. <small, verifiable step> (AC-n, …) — verify: <command or observable result>
    (tests first: the test-author writes the AC tests before any product code)
 ## Files likely touched
+- `path` — what changes there
+## Risks
+What could go wrong in the build or in production, and how the plan contains it (flag, migration
+order, fallback). "None" is fine.
 ## Exceptions
 Dependencies or check-defining files this work genuinely needs to change, each in backticks with a
 reason, e.g. - `date-fns` (new dependency: locale-aware formatting for AC-3).

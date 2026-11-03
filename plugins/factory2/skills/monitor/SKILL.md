@@ -18,9 +18,10 @@ allowed-tools: Bash(bash ${CLAUDE_PLUGIN_ROOT}/scripts/*) Read Glob Agent
    (model and effort from `bash $S/state.sh role triager`) with the issue, the deploy SHA and the
    run's spec. Post its `issue_comment` on the issue and record the incident in the run's history
    (stages-7-8.md, stage 8 step 4). Report the diagnosis in a few lines, then:
-   - if it recommends a rollback, ask; only on an explicit yes, approve and run it as stages-7-8.md says;
+   - if it recommends a rollback, roll back as stages-7-8.md says (stage 8 step 4.3); it needs no
+     approval;
    - offer the fix as a bugfix run: `/factory2:run --issue <ref>` (in `claude --worktree` while this run
-     holds the checkout). Never start a run, roll back or deploy from here unasked.
+     holds the checkout). Never start a run or deploy from here unasked.
 4. Exit 2: report the configuration error.
 5. When `monitor.window_hours` have passed since the deploy with no incident, say the window is over and
    suggest stopping the loop.

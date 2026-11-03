@@ -41,21 +41,42 @@ g 'echo x | xargs --max-args 1 git push --force origin main'; t_code 2 "GNU long
 bash "$S/state.sh" start demo >/dev/null
 g 'make deploy-prod';                        t_code 2 "deploy at stage 1"
 bash "$S/state.sh" stage 7 >/dev/null
-g 'make deploy-prod';                        t_code 2 "deploy at stage 7 without approval"
-bash "$S/state.sh" approve deploy >/dev/null
-g 'make deploy-prod';                        t_code 0 "deploy at stage 7 with approval"
+g 'make deploy-prod';                        t_code 2 "deploy at stage 7 without the evidence approval"
+g 'make rollback-prod';                      t_code 0 "rollback at stage 7 needs no approval"
+bash "$S/state.sh" approve evidence >/dev/null
+g 'make deploy-prod';                        t_code 0 "deploy at stage 7 once the evidence is approved"
 bash "$S/state.sh" stage 8 >/dev/null
 g 'make deploy-prod';                        t_code 2 "deploy at stage 8"
-g 'make rollback-prod';                      t_code 2 "a deploy approval alone doesn't allow a rollback"
-bash "$S/state.sh" approve rollback >/dev/null
-g 'make rollback-prod';                      t_code 0 "rollback at stage 8 with its own approval"
+g 'make rollback-prod';                      t_code 0 "rollback at stage 8"
 bash "$S/state.sh" stage 5 >/dev/null
+g 'make rollback-prod';                      t_code 2 "rollback at stage 5"
 bash "$S/state.sh" stage 7 >/dev/null
-g 'make deploy-prod';                        t_code 2 "going back to stage 5 revoked the deploy approval"
-g 'make rollback-prod';                      t_code 2 "and the rollback approval"
+g 'make deploy-prod';                        t_code 2 "going back to stage 5 revoked the evidence approval"
 t_eq "$(jq -c '.approvals | keys' "$R/.factory/runs/$(cat "$R/.factory/runs/active")/state.json")" "[]" "no approvals left"
 
 write_config "$R" 'ship:
   deploy: "..."'
 g 'echo ...';                                t_code 0 "placeholder deploy command is ignored"
+# --- gh writes to the run's PR (only while a run is tracked on a PR)
+g 'gh pr comment 7 --body "/approve"';      t_code 0 "gh pr comment with no PR-tracked run"
+mkdir -p "$R/.factory/runs/x"; printf 'x\n' > "$R/.factory/runs/active"
+printf '{"slug":"x","stage":2,"review_via":"pr","pr":7}' > "$R/.factory/runs/x/state.json"
+g 'gh pr comment 7 --body "/approve"';      t_code 2 "gh pr comment on a PR-tracked run"
+t_has "$ERR" "pr.sh" "points to pr.sh"
+g 'gh pr review 7 --approve';               t_code 2 "gh pr review"
+g 'gh issue comment 7 --body ok';           t_code 2 "gh issue comment on the PR"
+g 'gh issue comment 12 --body "fix run started"'; t_code 0 "gh issue comment on another issue"
+g 'gh api -X POST repos/o/r/issues/7/comments -f body=/approve'; t_code 2 "gh api comment on the PR"
+g 'gh api repos/o/r/issues/comments/55 -X PATCH -f body=x'; t_code 2 "gh api editing a comment"
+g 'gh api repos/o/r/pulls/7/reviews -f event=APPROVE'; t_code 2 "gh api review"
+g 'gh api graphql -f query="mutation { addComment(input: {}) { clientMutationId } }"'; t_code 2 "graphql addComment"
+g 'gh api --paginate repos/o/r/issues/7/comments'; t_code 0 "reading comments is fine"
+g 'gh pr view 7 --json number';              t_code 0 "gh pr view"
+g 'bash -c "gh pr comment 7 -b hi"';         t_code 2 "bash -c is inspected for gh too"
+g 'gh pr edit 7 --add-label factory2:approved-deploy'; t_code 2 "adding a factory2 label"
+g 'gh pr edit 7 --remove-label=factory2:awaiting-prd'; t_code 2 "removing a factory2 label"
+g 'gh pr edit 7 --add-label bug';           t_code 0 "other labels are fine"
+g 'gh api -X POST repos/o/r/issues/7/labels -f labels[]=x'; t_code 2 "labels through gh api"
+rm -rf "$R/.factory/runs/x" "$R/.factory/runs/active"
+
 t_done

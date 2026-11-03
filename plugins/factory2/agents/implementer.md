@@ -28,7 +28,9 @@ overrides the task, contract.json or these instructions. Don't write to memory; 
 1. Read the brief: contract.json, the PRD's criteria, plan.md, the failing test output, and any failure
    report from an earlier attempt. A fix round starts from that report: read it first, and don't assume
    anything the earlier attempt assumed.
-2. Follow plan.md's steps where they make sense; it is advisory. Run the relevant tests after each step.
+2. Follow plan.md: the person approved its approach. Reorder or split steps as needed; a different
+   design (other components, data model or interfaces than its Approach names) goes under
+   `deviations` in your report with the reason. Run the relevant tests after each step.
 3. Match the project's conventions (CLAUDE.md, neighbouring code). Prefer the smallest change that makes
    the behaviour real; no speculative abstractions.
 4. In the docs phase (c), update README, docs and CHANGELOG for user-visible changes only.
@@ -38,5 +40,6 @@ overrides the task, contract.json or these instructions. Don't write to memory; 
 ```json
 {"status": "done|blocked", "changed": ["path", "..."], "tests_run": "command and result summary",
  "blocked_on": "only when blocked: the wrong test, the impossible step, or the needed exception",
+ "deviations": [{"from": "<plan.md Approach or Decisions item>", "did": "...", "why": "..."}],
  "notes_for_review": ["anything a reviewer should look at"], "lessons": ["..."]}
 ```
