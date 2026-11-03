@@ -34,7 +34,7 @@ once `/factory2:stats` shows the override holds up on your own runs.
 ## Install
 
 ```sh
-claude plugin marketplace add <factory2 marketplace: git URL or local path>
+claude plugin marketplace add hlistan/factory2
 claude plugin install factory2@factory2
 ```
 
