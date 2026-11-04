@@ -1,7 +1,7 @@
 {
   "name": "factory2",
   "displayName": "factory2",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "An 8-stage feature harness: plan, PRD review, test-first implementation, review, evidence, merge and deploy, monitor. Gates are scripts; learning uses a pinned copy of compound-engineering's ce-compound and per-agent calibration memory that a hook loads.",
   "author": {
     "name": "hlistan"

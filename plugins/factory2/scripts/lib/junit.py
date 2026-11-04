@@ -22,7 +22,8 @@ A test names criterion n when its name, class name or a property value contains 
 `AC_n` (function names: Go, Swift, Python; not followed by a digit), preceded by a non-letter or by
 `Test`/`test`. A suffixed tag (`@AC-1-extra`) names no criterion.
 Every *.xml file under the reports directory is read; a testcase with <failure> or <error> failed, one
-with <skipped> was skipped (and does not pass).
+with <skipped> was skipped (and does not pass). For sync, a test id that several reports hold fails if any
+failed it, passes if any passed it, and is skipped only when none ran it.
 """
 import json
 import os
@@ -92,9 +93,21 @@ def load_contract(path):
     return data, crit
 
 
+def merged(cases):
+    """One case per test id across reports. A suite may run the same test twice, e.g. Go's unit run, where
+    an integration test skips itself, and the integration run, where it passes. The test fails if any run
+    failed it, passes if any run passed it, and is skipped only when no run ran it."""
+    rank = {"failed": 2, "passed": 1, "skipped": 0}
+    out = {}
+    for c in cases:
+        if c["id"] not in out or rank[c["status"]] > rank[out[c["id"]]["status"]]:
+            out[c["id"]] = c
+    return list(out.values())
+
+
 def cmd_sync(contract, reports):
     data, crit = load_contract(contract)
-    cases = load_cases(reports)
+    cases = merged(load_cases(reports))
     by_ac = {}
     for c in cases:
         for n in criteria_of(c):
@@ -161,14 +174,21 @@ def cmd_red_tests(reports, names):
                 flagged += 1
                 continue
             hits = sub
+        # A run that skips the test (Go's unit run without a database, a serial group after its first
+        # failure) neither passes nor proves it red; a pass anywhere is early, a skip-only test never ran.
+        passed = [t for t in hits if t["status"] == "passed"]
+        failed = [t for t in hits if t["status"] == "failed"]
         if not hits:
             print(f"{w}\tNOT-VISIBLE\tno test result has this name (not collected, or misnamed)")
             flagged += 1
-        elif any(t["status"] != "failed" for t in hits):
-            print(f"{w}\tPASSES-EARLY\t" + "; ".join(f"{t['id']} ({t['status']})" for t in hits if t["status"] != "failed"))
+        elif passed:
+            print(f"{w}\tPASSES-EARLY\t" + "; ".join(f"{t['id']} ({t['file']})" for t in passed))
+            flagged += 1
+        elif not failed:
+            print(f"{w}\tNOT-RUN\tevery result is skipped: run it where it executes, alone if a serial group skipped it")
             flagged += 1
         else:
-            print(f"{w}\tRED\t{len(hits)} result(s) fail")
+            print(f"{w}\tRED\t{len(failed)} result(s) fail")
     return 1 if flagged else 0
 
 

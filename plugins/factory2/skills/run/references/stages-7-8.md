@@ -8,46 +8,51 @@ at stage 8, a person) **files an issue first**, and the fix goes through a new *
 approval; it doesn't replace the fix.
 
 ## Stage 7 (`state.sh stage 7`, `phase ship`)
+Nothing in this stage asks the person: the evidence approval covers merge, deploy, smoke and rollback.
+Everything that must reach the default branch is committed **before** the merge; after it, the branch
+is gone and only git-ignored state changes.
 1. Update from main: `git fetch origin && git merge --no-edit origin/<default_branch>`. A conflict: stop
    and ask; don't resolve conflicts in tests or check files yourself.
-2. `bash $S/state.sh fold-memory`, then commit only `.claude/agent-memory/factory-*/` as
-   `factory(<slug>): fold memory`. Show the user the added lines (they are part of the PR review).
-3. `bash $S/ship.sh verify`: evidence approval recorded; checks green; every commit after the approved
-   SHA is a conflict-free merge of origin/main or the fold commit. Any other commit means the evidence
-   no longer matches: back to stage 6.
-4. Push, then `bash $S/ship.sh merge`.
-5. Deploy, without another approval (the evidence approval covers it): `bash $S/ship.sh deploy` and
-   `bash $S/ship.sh smoke`. On a PR run, `bash $S/pr.sh publish note` with the deployed commit and the
-   smoke result.
-6. **Smoke fails** (the change is already merged, so it can't go back to stage 5):
-   1. File the issue first: `bash $S/monitor.sh issue --source smoke --output <smoke output file>`. It
-      prints the issue reference; record it:
-      `bash $S/state.sh history '.incidents += [{issue: $i, source: "smoke", at: $at}]' --arg i <ref> --arg at "$(date -u +%Y-%m-%dT%H:%M:%SZ)"`.
-   2. Roll back when `ship.rollback` is set: `bash $S/ship.sh rollback`, then comment the rollback on
-      the issue (and on the PR with `pr.sh publish note`) and tell the user.
-   3. Finish this run as in step 7 (its history says what happened), and offer
-      `/factory2:run --issue <ref> ` for the fix.
-7. Success: `bash $S/ship.sh mark` records the deploy SHA, time and monitor baseline. Write the run's
-   measurements to history (state.json is git-ignored, history is not):
-   `bash $S/state.sh history '.finished = $at | .rounds = $r | .spend = $s' --arg at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --argjson r "$(bash $S/state.sh get .rounds)" --argjson s "$(bash $S/state.sh spend)"`.
-   Capture lessons (learning.md), and go to stage 8.
-8. **Bugfix run** (`kind: bugfix`), after a successful deploy:
-   - Close the issue: the PR says `Fixes #<n>` (stage 4d), so the merge closes a GitHub issue; comment
-     the deploy SHA on it. A local issue file gets `status: fixed`, the PR and the deploy SHA.
-   - **Postmortem**, now that the cause and the fix are known: one ce-compound capture (learning.md) with
-     the symptom, how it was detected, the root cause, the fix and its regression test, and why the
-     originating run's gates didn't catch it.
+2. **Bugfix run** (`kind: bugfix`) only, now that the cause and the fix are known:
+   - **Postmortem**: one ce-compound capture (learning.md) with the symptom, how it was detected, the
+     root cause, the fix and its regression test, and why the originating run's gates didn't catch it.
    - Calibration: when `caused_by` is set, one line for each agent of that run that should have caught
-     it (usually a review lens, `qa-evaluator` or `test-reviewer`), recorded here with
-     `state.sh calibrate`; and record the escape in this run's history:
-     `state.sh history '.escape = {caused_by: $c, stage_missed: $m}' --arg c <slug> --arg m <stage that should have caught it>`.
+     it (usually a review lens, `qa-evaluator` or `test-reviewer`), with `state.sh calibrate`; and the
+     escape: `state.sh history '.escape = {caused_by: $c, stage_missed: $m}' --arg c <slug> --arg m <stage>`.
+3. Write the run's measurements to history:
+   `bash $S/state.sh history '.finished = $at | .rounds = $r | .spend = $s' --arg at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --argjson r "$(bash $S/state.sh get .rounds)" --argjson s "$(bash $S/state.sh spend)"`.
+4. `bash $S/state.sh fold-memory`, then commit `.claude/agent-memory/factory-*/`,
+   `.factory/history/<slug>.json` and any new lesson docs under `<docs_root>/solutions/` (and nothing
+   else) as `factory(<slug>): fold memory and history`. Show the user the added memory lines (they are
+   part of the PR review). `ship.sh verify` refuses any other change after the approval.
+5. `bash $S/ship.sh verify`: the evidence approval is an ancestor of HEAD; every commit after it is a
+   conflict-free, unmodified merge of origin/main or that bookkeeping commit (only memory lines that are
+   this run's calibration lines); every check green. Exit 1 names each commit it doesn't cover: the
+   evidence no longer matches, back to stage 6.
+6. `git push`, then `bash $S/ship.sh merge` (runs `ship.merge` and records the merged commit).
+7. `bash $S/ship.sh deploy` (skipped, exit 0, when `ship.deploy` is empty), then `bash $S/ship.sh smoke`.
+   On a PR run, `bash $S/pr.sh publish note` with the deployed commit and the smoke result.
+8. **Smoke fails** (exit 1; the change is already merged, so it can't go back to stage 5):
+   1. File the issue first: `bash $S/monitor.sh issue --source smoke --output <run>/smoke.log`. It prints
+      `issue: <ref>`; record it:
+      `bash $S/state.sh history '.incidents += [{issue: $i, source: "smoke", at: $at}]' --arg i <ref> --arg at "$(date -u +%Y-%m-%dT%H:%M:%SZ)"`.
+   2. Roll back: `bash $S/ship.sh rollback` (exit 1 when `ship.rollback` is empty: tell the user to roll
+      back by hand). Comment the rollback on the issue and tell the user.
+   3. `bash $S/ship.sh mark`, then offer `/factory2:run --issue <ref>` for the fix and go to stage 8.
+9. Success: `bash $S/ship.sh mark` records the deploy commit, time and monitoring baseline (which
+   `monitor.checks` pass right now; a check already failing isn't an anomaly while it keeps failing).
+10. **Bugfix run**: close the issue. The PR says `Fixes #<n>` (stage 4d), so the merge closes a GitHub
+    issue; comment the deploy commit on it. A local issue file gets `status: fixed`, the PR and the
+    deploy commit.
+11. Go to stage 8.
 
 ## Stage 8 (`state.sh stage 8`, `phase monitor`)
 1. The run keeps this checkout while it is watched: the deploy guard allows `ship.rollback` only for
    the active run at stage 7–8. A bugfix run
    started meanwhile goes in a parallel session (`claude --worktree`); after the window, in this checkout.
 2. `bash $S/monitor.sh --once <slug>`: runs `monitor.checks`, compares with the baseline; exit 0
-   healthy, 1 anomaly (an issue was filed), 2 config error.
+   healthy, 1 anomaly (a new issue was filed: `issue: <ref>` lines), 3 still failing with an incident
+   already open (nothing new), 2 config error.
 3. Offer the scheduler from `monitor.scheduler`:
    - `local-loop`: suggest `/loop <interval> /factory2:monitor <slug>` (runs only while this session is
      idle, expires after 7 days).

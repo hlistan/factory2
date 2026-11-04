@@ -22,6 +22,8 @@ allowed-tools: Bash(bash ${CLAUDE_PLUGIN_ROOT}/scripts/*) Read Glob Agent
      approval;
    - offer the fix as a bugfix run: `/factory2:run --issue <ref>` (in `claude --worktree` while this run
      holds the checkout). Never start a run or deploy from here unasked.
-4. Exit 2: report the configuration error.
-5. When `monitor.window_hours` have passed since the deploy with no incident, say the window is over and
+4. Exit 3: still failing, and an incident is already open for it (the output names it): one line, no
+   new triage.
+5. Exit 2: report the configuration error.
+6. When `monitor.window_hours` have passed since the deploy with no incident, say the window is over and
    suggest stopping the loop.

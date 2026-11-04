@@ -6,8 +6,8 @@ to the next run.**
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Claude Code ≥ 2.1.311](https://img.shields.io/badge/Claude%20Code-%E2%89%A5%202.1.311-d97757)](https://code.claude.com/docs)
-![Status: alpha](https://img.shields.io/badge/status-alpha-orange)
-![Version 0.3.0](https://img.shields.io/badge/version-0.3.0-lightgrey)
+![Status: beta](https://img.shields.io/badge/status-beta-yellow)
+![Version 0.4.0](https://img.shields.io/badge/version-0.4.0-lightgrey)
 
 ---
 
@@ -59,11 +59,11 @@ The [user guide](docs/GUIDE.md) walks through each stage in detail.
 
 ## Status
 
-**Alpha.** Stages 1–5 work end to end: the orchestrator, the 14 agents, the hooks and the harness
-scripts, with unit tests and live hook tests. Stages 6–8 have their instructions and agents, but four
-scripts are still to come: `evidence.sh`, `ship.sh`, `monitor.sh` and `stats.sh`. Until then a run stops
-at the start of stage 6 and says which script is missing. The PR flow is tested against a fake `gh`,
-not yet against GitHub itself. See [Status and build order](docs/PRD.md#status-and-build-order).
+**Beta.** All eight stages are built and tested: the orchestrator, the 14 agents, the hooks and every
+harness script, with 700+ checks in the bash suites, live hook tests, and a real Playwright capture
+that produced the review pack. What hasn't happened yet is a full run on a production project, and the
+PR flow has been tested against a stand-in `gh` rather than GitHub itself. See
+[Status and build order](docs/PRD.md#status-and-build-order).
 
 ## Requirements
 
@@ -71,8 +71,10 @@ not yet against GitHub itself. See [Status and build order](docs/PRD.md#status-a
 - `git`, `jq` and `python3`
 - Recommended: [`gh`](https://cli.github.com/), logged in, with an `origin` remote. Runs are then
   tracked and approved on a draft PR; without it, approvals happen in the terminal.
-- For web projects: Playwright 1.59 or later and `@playwright/cli`
-- Optional: `ffmpeg` (mp4 video), `docker` (pinned Playwright browsers)
+- For web projects: Playwright 1.59 or later (1.64+ recommended) and `@playwright/cli`
+- Recommended: `ffmpeg`, so review-pack videos are H.264 mp4 (`brew install ffmpeg` or
+  `apt-get install ffmpeg`); without it they stay WebM
+- Optional: `docker` (pinned Playwright browsers)
 
 ## Quick start
 

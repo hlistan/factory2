@@ -1,0 +1,39 @@
+# factory2 production monitoring (monitor.scheduler: github-actions).
+# /factory2:init copies this to .github/workflows/factory-monitor.yml. It runs the committed
+# .factory/bin/monitor.sh on a schedule. It only detects and files: a failing check opens an issue labelled
+# factory-incident; the next local /factory2:run or /factory2:status picks it up for triage. No Claude
+# runs here, so CI needs no Anthropic credential.
+#
+# Secrets your monitor.checks need (URLs, tokens) go in the repository's Actions secrets and the env below.
+name: factory2 monitor
+
+on:
+  schedule:
+    - cron: "*/15 * * * *"   # GitHub may delay scheduled runs; 15 minutes is the practical floor
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: factory2-monitor
+  cancel-in-progress: false
+
+jobs:
+  monitor:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run production checks
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # EXAMPLE_API_TOKEN: ${{ secrets.EXAMPLE_API_TOKEN }}
+        run: |
+          set +e
+          bash .factory/bin/monitor.sh --once
+          code=$?
+          # 1: a new incident was filed (fail the job so it shows red); 3: still failing, already filed
+          if [ "$code" = 1 ] || [ "$code" = 2 ]; then exit "$code"; fi
+          exit 0

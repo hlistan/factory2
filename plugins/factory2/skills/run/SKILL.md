@@ -115,5 +115,11 @@ stage 7 with the evidence approved, and `ship.rollback` outside stage 7–8.
 - Agents' reports end with `lessons`. Treat them as candidates, not facts: one that names a check an
   agent should apply next time becomes a calibration line only when a stage outcome confirms it, and
   one that generalises goes to ce-compound per learning.md. Never fold them into memory directly.
-- If anything is ambiguous or a script fails unexpectedly, stop and report the exact output; don't work
-  around a gate.
+- **Decide technical questions yourself, grounded.** Research it (web search, vendor docs, standards;
+  `researcher` for anything substantial), choose the proven practice, and record the decision with its
+  source where it applies (plan.md, the feedback file, or the code site). Ask the user only when no
+  source grounds a choice, or when the choice changes how the product behaves for its users (scope,
+  wording, flows, what a page or answer shows). Never offer a menu of options you could have settled.
+  Gate approvals are not decisions: the gates still stop for the user.
+- If a script fails unexpectedly, stop and report the exact output; don't work around a gate. When the
+  script itself is wrong, fix it at the cause with a regression test, and say so.

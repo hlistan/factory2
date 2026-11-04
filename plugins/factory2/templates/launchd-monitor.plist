@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  factory2 production monitoring on macOS (monitor.scheduler: launchd).
+  /factory2:init fills in __LABEL__, __PROJECT__, __INTERVAL_SECONDS__ and __PATH__, writes it to
+  ~/Library/LaunchAgents/__LABEL__.plist, and shows the command to load it:
+    launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/__LABEL__.plist
+  Unload with: launchctl bootout gui/$(id -u)/__LABEL__
+  It runs the committed .factory/bin/monitor.sh; on a new incident (exit 1) it shows a notification.
+  The next /factory2:run or /factory2:status in the project triages it.
+-->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>__LABEL__</string>
+  <key>WorkingDirectory</key>
+  <string>__PROJECT__</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/bash</string>
+    <string>-c</string>
+    <string>out="$(bash .factory/bin/monitor.sh --once 2>&amp;1)"; code=$?; printf '%s\n' "$out"; if [ "$code" = 1 ]; then osascript -e "display notification \"$(printf '%s' "$out" | grep '^issue:' | head -n 1 | tr -d '\"')\" with title \"factory2: production incident\""; fi; exit 0</string>
+  </array>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key>
+    <string>__PATH__</string>
+  </dict>
+  <key>StartInterval</key>
+  <integer>__INTERVAL_SECONDS__</integer>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>StandardOutPath</key>
+  <string>__PROJECT__/.factory/runs/monitor.log</string>
+  <key>StandardErrorPath</key>
+  <string>__PROJECT__/.factory/runs/monitor.log</string>
+</dict>
+</plist>

@@ -108,7 +108,7 @@ prices fast mode and US-only inference from the transcript's fields.
 | 4 Implement | A port for this run and a baseline of currently failing checks.<ul><li>**(a)** `test-author` writes tests at the level the PRD names. Each test has `@AC-n` **in its title** (or `AC_n` in a function name, for Go and Swift), never with a suffix such as `@AC-1-extra`.</li><li>**(a1)** `run-checks.sh red`: every new test must fail against the unchanged code. A test that already passes is flagged to the test-reviewer.</li><li>**(a2)** `test-reviewer` checks every criterion is covered and every assertion means something: unit and integration tests fail at the expected assertion, for the expected reason; an e2e test starts with an explicit presence check (`await expect(locator).toBeVisible({timeout: 5000})`) and its later assertions are reachable once the element exists. Problems go back to (a).</li><li>**Freeze** (see Safety).</li><li>**(b)** The implementer writes the code, following the approved `plan.md`; it reports any `deviations` from its approach, which go to the spec reviewer and the PR. **(c)** README, docs and CHANGELOG.</li></ul>**Stop gate** (SubagentStop `^factory2:implementer$`): re-checks the frozen hashes, then runs the fast checks from the snapshot under its own 840 s limit; blocks with exit 2 up to `checks.stop_retries` (3) times, under Claude Code's limit of 8 consecutive continuations. The orchestrator then runs every check itself.<br><br>**`contract-sync`:** every check writes JUnit XML (Playwright's `junit` reporter, Vitest `--reporter=junit`, Jest through `jest-junit`); `AC-\d+\b` is matched in test-case names; a criterion gets `passes: true` only when at least one test names it and every test that names it passed. The harness sets `passes`; no agent does.<br><br>A commit after each sub-phase; at the end the branch is pushed and the PR description refreshed, with a note listing deviations from the plan (a terminal run opens its PR here). | On a failing pass: a fresh implementer at high, at most 2 rounds, then you |
 | 5 Review and fix | `learnings-researcher` runs first, then the mechanical checks.<ul><li>**`limits.depth`:** `lite` (diff under `lite_max_lines` and nothing on the risk list) runs correctness and spec only, with no challenger. `full` adds security and maintainability, plus the challenger on each blocking finding (`confirmed` stays blocking, `refuted` becomes advisory, `unproven` goes to the fix loop, whose failing test decides).</li><li>**`qa-evaluator`** drives the running app with `playwright-cli` (package `@playwright/cli`). It gives **one pass or fail per `AC-n`, with a screenshot or trace path as evidence**, in `<run>/evidence/qa/`. Any fail blocks.</li><li>Each confirmed finding goes through `test-author` (a failing test; regression tests with no criterion are untagged), then `test-reviewer`, then an extension of the freeze, then a fresh implementer at high. Only the lenses that blocked review again.</li><li>Calibration lines and ce-compound follow.</li></ul> | At most `limits.review_rounds` (2), then you |
 | 6 Evidence | The `@AC-n` e2e specs are the demo script, run under `playwright.demo.config.ts` (`evidence.driver: playwright`; `command` or `none` for apps without a browser UI):<ul><li>`use.video: {mode: 'on', show: {actions: {...}, test: {level: 'step'}}}`, with `page.screencast.showChapter()` for each criterion</li><li>Docker image `mcr.microsoft.com/playwright:v<the app's Playwright version>-noble`</li><li>a single criterion is selected with `--grep '@AC-1\b'`, in single quotes</li><li>screenshots at 1440, 768 and 390 pixels wide</li></ul>`evidence.sh` converts the WebM video to H.264 mp4 with ffmpeg (factory's practice, not a Playwright feature) and builds `review-pack/index.html`.<br><br>Then **your gate**: the request carries the pack link, the criteria table and the advisory findings, and says it is the last approval. The **triager routes each comment by class**: spec gap → a PRD amendment, then stage 2; defect → stage 5, with a failing test first; cosmetic → a direct fix, then evidence re-captured. A defect on a criterion QA passed is a **QA false negative**: a `qa-evaluator` calibration line and a candidate eval case. On approval the PR is marked ready (`ship.pr_ready`). | Approve, or route by class, at most `limits.evidence_rounds` (3) |
-| 7 Merge and deploy | Update from `main` (a conflict stops and asks), `state.sh fold-memory` and its commit, then `ship.sh verify`: the evidence approval is recorded, checks are green, and every commit after the approved SHA is a conflict-free merge of `origin/main` or the memory-fold commit. Then `ship.merge` → `ship.deploy` → `ship.smoke` (the `@smoke` tests against production), with no further approval. If smoke fails, an issue is filed first, then `ship.rollback` runs; the fix is a bugfix run. The deploy marker and the monitoring baseline are recorded, and rounds and spend written to history. A bugfix run also closes its issue, writes the postmortem and the calibration lines for the run that shipped the bug. | none |
+| 7 Merge and deploy | Update from `main` (a conflict stops and asks), then one bookkeeping commit (the folded memory lines, the run's history measurements and any lesson doc), then `ship.sh verify`: the evidence approval is an ancestor of HEAD, checks are green, and every commit after the approved SHA is a conflict-free, unedited merge of `origin/main` or that bookkeeping commit, whose memory lines must be the run's calibration lines. Then `ship.merge` → `ship.deploy` → `ship.smoke` (the `@smoke` tests against production), with no further approval. If smoke fails, an issue is filed first, then `ship.rollback` runs; the fix is a bugfix run. The deploy marker and the monitoring baseline are recorded, and rounds and spend written to history. A bugfix run also closes its issue, writes the postmortem and the calibration lines for the run that shipped the bug. | none |
 | 8 Monitor | See Incidents. The run keeps its checkout for `monitor.window_hours` (24), then ends. | An issue, then a bugfix run |
 
 **State, spend and parallel runs:**
@@ -314,7 +314,7 @@ milestone and on every agent-prompt change; QA false negatives exported by `stat
 ```
 .claude-plugin/marketplace.json     marketplace "factory2" → ./plugins/factory2
 plugins/factory2/
-  .claude-plugin/plugin.json        version 0.3.0, no dependencies
+  .claude-plugin/plugin.json        version 0.4.0, no dependencies
   agents/      planner prd-reviewer learnings-researcher test-author test-reviewer implementer
                reviewer-{correctness,spec,security,maintainability} challenger qa-evaluator triager researcher
   skills/      run init monitor status stats                     (user commands)
@@ -323,9 +323,11 @@ plugins/factory2/
   hooks/hooks.json  SessionStart · SubagentStart ^factory2: (memory) · PreToolUse Bash (guard-bash)
                     · PreToolUse Edit|Write|NotebookEdit (test-guard) · SubagentStop ^factory2:implementer$
                     (stop gate) · SubagentStop ^factory2: (spend)
-  scripts/     state pr run-checks guard-bash test-guard subagent-stop change-diff gate memory-inject
-               spend doctor session-start; lib/ (freeze, fold, junit, pathcheck, spend, timeout, yaml2json)
-  templates/   factory.config.yaml (annotated; the reference for every setting)  gitignore.txt
+  scripts/     state pr run-checks evidence ship monitor stats guard-bash test-guard subagent-stop
+               change-diff gate memory-inject spend doctor session-start
+               lib/ (evidence, freeze, fold, junit, pathcheck, spend, stats, timeout, yaml2json)
+  templates/   factory.config.yaml (annotated; the reference for every setting)  playwright.demo.config.ts
+               github-actions-monitor.yml  launchd-monitor.plist  gitignore.txt
   vendor/compound-engineering/  LICENSE  upstream.json
   evals/       claude plugin eval cases and graders
 tests/         bash suites per script (bash tests/run.sh); live/ (plugin install, hooks, ce contract)
@@ -375,22 +377,31 @@ lessons in `docs/solutions/`.
 2. **M2: stages 1–3.** Done: planner, `prd-reviewer`, the PR flow and gates, calibration and capture.
 3. **M3: stage 4.** Done: test-author, the red check, test-reviewer, the freeze with Exceptions, the stop
    gate, JUnit `contract-sync`, fresh-spawn re-runs, spend and budget.
-4. **M4: stage 5.** Orchestration written: the lenses, the challenger, `limits.depth`, `qa-evaluator`,
-   read-only enforcement. Eval cases to add.
-5. **M5: stage 6.** To build: `evidence.sh`, the demo config, the review pack. Until then the
-   orchestrator stops at the start of stage 6 and reports the missing script.
-6. **M6: stages 7–8.** To build: `ship.sh` (`verify`, merge, deploy, smoke, rollback, mark), `monitor.sh`,
-   the scheduler templates, incident pickup.
-7. **M7: `stats.sh`.** Then migrate the three projects off singularity, each step only after the
-   owner's OK: remove `singularity@singularity` and its marketplace entry, install factory2, run
+4. **M4: stage 5.** Done: the lenses, the challenger, `limits.depth`, `qa-evaluator`, read-only
+   enforcement, advisory findings saved for the pack. Eval cases to add.
+5. **M5: stage 6.** Done: `evidence.sh` (capture with the playwright, command and none drivers; mp4
+   conversion; the review pack; publish), `templates/playwright.demo.config.ts`. Verified with a real
+   Playwright 1.64.1 run (two viewports, video overlays, ffmpeg H.264).
+6. **M6: stages 7–8.** Done: `ship.sh` (`verify`, merge, deploy, smoke, rollback, mark), `monitor.sh`
+   (self-contained CI copy, baseline, deduplicated incidents, auto rollback), the GitHub Actions and
+   launchd templates.
+7. **M7: `stats.sh`.** Done.
+8. **Next:** a full run on a real project (the end-to-end checks under Verification), the remaining
+   eval cases, and the PR flow against GitHub itself. Then migrate the three projects off singularity,
+   each step only after the owner's OK: remove `singularity@singularity` and its marketplace entry, install factory2, run
    `/factory2:init`.
 
 ## Verification
 
 - **Bash suites** (`bash tests/run.sh`): `state`, `pr` (the PR flow against a fake `gh` and a bare
-  remote), `guard-bash`, `freeze`, `gate`, `junit`, `memory-inject`, `spend`, `yaml2json`, `plugin`
+  remote), `evidence` (the three drivers and the pack), `ship` (verify against a real main merge, an
+  edited merge, the bookkeeping commit and a late product commit; merge, deploy, smoke, rollback, mark),
+  `monitor` (baseline, the three report modes, deduplication, auto rollback, the standalone CI copy),
+  `stats`, `guard-bash`, `freeze`, `gate`, `junit`, `memory-inject`, `spend`, `yaml2json`, `plugin`
   (manifest, bundled skills, agents) and `regressions` (one test per fixed defect from two independent
   code reviews).
+- **Evidence, for real:** a Playwright 1.64.1 project with two `@AC-n` specs at two viewports: video
+  overlays, H.264 conversion with ffmpeg, and the review pack rendered and checked by screenshot.
 - **Live** (`tests/live/`): install and load, hook firing, the ce-compound contract.
 - **`claude plugin eval`** at each milestone, with a no-plugin baseline arm for the reviewers.
 - **End to end, to run** on a sample Next.js app with the feature "add a dark-mode toggle": once at

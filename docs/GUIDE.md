@@ -3,11 +3,10 @@
 How the harness works, how to run a feature through it, how to watch it, how to keep control of what it
 produces, and how it learns from your feedback.
 
-> **Build status (v0.3.0).** Stages 1–5 are complete: the orchestrator instructions, the agents, the hooks
-> and the harness scripts, with unit tests and live hook tests. Stages 6–8 have their instructions and
-> agents, but four scripts are still to come: `evidence.sh` (M5), `ship.sh` and `monitor.sh` (M6), and
-> `stats.sh` (M7). Until then the orchestrator stops at the start of stage 6 and reports the missing
-> script. Sections that depend on these scripts are marked *(M5)*, *(M6)* or *(M7)*.
+> **Build status (v0.4.0).** All eight stages are built: the orchestrator instructions, the 14 agents,
+> the hooks and the harness scripts (including `evidence.sh`, `ship.sh`, `monitor.sh` and `stats.sh`),
+> with unit tests, live hook tests and a real Playwright capture. Not yet exercised: a full run on a
+> production project, and the PR flow against GitHub itself (it is tested against a stand-in `gh`).
 
 ---
 
@@ -265,14 +264,18 @@ If the implementer reports that a frozen test is wrong, or that it needs a new d
 
 Advisory findings are not fixed automatically; you see them at the stage 6 gate.
 
-### Stage 6: evidence (⏸ your gate) *(M5)*
+### Stage 6: evidence (⏸ your gate)
 
-1. The `@AC-n` e2e tests are the demo script. They run under a demo Playwright config that records a
-   video with a chapter per criterion, and screenshots at 1440, 768 and 390 pixels wide. The video is
-   converted to mp4 when ffmpeg is installed.
+1. The `@AC-n` e2e tests are the demo script. They run under `playwright.demo.config.ts` (which
+   `/factory2:init` copies; it reuses your `playwright.config.ts`), once per `evidence.viewports` size
+   (1440, 768 and 390 pixels wide by default). Each test records a video with its title, steps and
+   actions overlaid, so you can see which criterion is on screen, and a screenshot. Videos are
+   converted to mp4 when ffmpeg is installed. For apps without a browser UI, `evidence.driver: command`
+   runs your own capture command, and `none` shows test results only.
 2. A **review pack** is built at `.factory/runs/<slug>/review-pack/index.html`. For each criterion it
-   shows the text, its tests, pass or fail, the screenshots and the video chapter. It also lists the
-   advisory findings, spend so far and the PR link.
+   shows the text, its level, pass or fail, its demo tests, and a card per viewport with the video and
+   the screenshot. It also lists the advisory findings, spend by stage and the PR link. The folder is
+   self-contained; `evidence.publish` can upload it and put the link in the approval request.
 3. **You** approve or comment on the PR: factory posts an approval request with the pack's link
    (when `evidence.publish` is set), the criteria table and the advisory findings. Reply `/approve`, or
    comment. The `triager` sorts each comment:
@@ -285,22 +288,27 @@ Advisory findings are not fixed automatically; you see them at the stage 6 gate.
 
 4. On approval, the approved commit is recorded and the PR is marked ready.
 
-### Stage 7: merge and deploy *(M6)*
+### Stage 7: merge and deploy
 
 1. Merges `origin/<default>` into the branch. On a conflict it stops and asks you.
-2. Folds the run's lesson lines into each agent's memory and commits only those files. **You see the
-   added lines.**
-3. `ship.sh verify` checks that every commit after your evidence approval is either a clean merge from
-   main or the memory fold. Anything else sends the run back to stage 6.
+2. Writes the run's measurements to its history file, folds its lesson lines into each agent's memory,
+   and commits only those files (plus a bugfix run's postmortem doc). **You see the added lines.**
+3. `ship.sh verify` checks that every commit after your evidence approval is either a clean, unedited
+   merge from main or that bookkeeping commit (whose memory lines must be the run's recorded lessons),
+   and that every check is green. Anything else sends the run back to stage 6.
 4. Merges the PR and deploys, without asking again: your evidence approval covers it. A hook blocks
    the deploy command outside stage 7 or without that approval. The deployed commit and the smoke
    result are noted on the PR.
 5. Runs the smoke tests. If they fail, it **files an issue first**, rolls back (when `ship.rollback` is
-   set) and comments that on the issue and the PR, and offers a bugfix run for the issue. The change is already merged, so the run itself doesn't go back.
-6. **For a bugfix run:** comments the deploy on the issue (the merge closed it), writes the postmortem
-   (§6.2), and records lesson lines for the agents of the run that shipped the bug.
+   set) and comments that on the issue and the PR, and offers a bugfix run for the issue. The change is
+   already merged, so the run itself doesn't go back.
+6. Records the deploy marker and the monitoring baseline: which `monitor.checks` pass right now. A
+   check that already fails at deploy time isn't reported as an anomaly while it keeps failing.
+7. **For a bugfix run:** the postmortem (§6.2) and lesson lines for the agents of the run that shipped
+   the bug are written before the merge (step 2); after the deploy it comments the deploy on the issue
+   (the merge closed it).
 
-### Stage 8: monitor *(M6)*
+### Stage 8: monitor
 
 See §4.2.
 
@@ -333,7 +341,7 @@ See §4.2.
 limit or stop. Spend is estimated at standard prices and doesn't include fast mode. Agents stopped with
 TaskStop are listed as unpriced.
 
-### 4.2 Watching production after a deploy *(M6)*
+### 4.2 Watching production after a deploy
 
 `monitor.sh` runs your `monitor.checks` commands and compares them with the baseline recorded at deploy.
 On an anomaly it **files an issue first**, before anything else (`monitor.report`):
@@ -344,7 +352,11 @@ On an anomaly it **files an issue first**, before anything else (`monitor.report
 | `command` | Your tracker (Jira, Linear, …) through `monitor.issue_cmd`, which gets the title as `$1` and the body on stdin, and prints the issue key |
 | `file` | `.factory/incidents/I-<n>.md`, for projects without a tracker |
 
-It rolls back on its own only when `auto_rollback: true`.
+A check that keeps failing gets no second incident while the first is open (GitHub issues and
+incident files are checked; a `command` tracker isn't), and `monitor.sh` exits 3 instead of 1. It rolls
+back on its own only when `auto_rollback: true`, after filing, and notes the rollback on the incident.
+The baseline lives in the run's local state, so the CI and launchd copies, which don't have it, treat
+any failing check as an anomaly.
 
 Choose a scheduler with `monitor.scheduler`:
 
@@ -537,14 +549,14 @@ only: one becomes a calibration line when a stage outcome confirms it, never dir
 - **Remove or rewrite a line:** edit `MEMORY.md` in a normal commit, outside a run. Agents can't, but you
   can.
 - **Size:** each `MEMORY.md` is capped at `learning.memory_max_lines` (150). The oldest lines move to
-  `archive.md` in the same folder, which isn't loaded. `/factory2:stats` *(M7)* lists agents near the cap
+  `archive.md` in the same folder, which isn't loaded. `/factory2:stats` lists agents near the cap
   so you can consolidate them.
 - **Project knowledge:** `docs/solutions/` is ordinary markdown. The bundled
   `ce-compound-refresh` consolidates it when ce-compound recommends a refresh, or every
   `learning.refresh_ceiling` runs.
 - **Turn it off:** `learning.enabled: false`.
 
-### 6.5 Measuring whether it works *(M7)*
+### 6.5 Measuring whether it works
 
 Each run's committed history file records:
 
@@ -588,8 +600,8 @@ agent prompt changes. The seed case, a PRD with no empty-state criterion, scored
 | `/factory2:run --issue <ref>` | Start a bugfix run from an issue |
 | `/factory2:run <slug> [--from <n>]` | Resume, or restart from a stage |
 | `/factory2:status [slug]` | One-screen state of a run; read-only |
-| `/factory2:monitor <slug>` | One round of production checks *(M6)*; pair with `/loop` |
-| `/factory2:stats [--since <date>] [--export-evals]` | Measurements across runs *(M7)* |
+| `/factory2:monitor <slug>` | One round of production checks; pair with `/loop` |
+| `/factory2:stats [--since <date>] [--export-evals]` | Measurements across runs |
 
 ### Files in your project
 
@@ -597,11 +609,11 @@ agent prompt changes. The seed case, a PRD with no empty-state criterion, scored
 .factory/
   config.yaml                committed   checks, limits, roles, ship, monitor, learning
   history/<slug>.json        committed   measurements and lesson lines, one file per run
-  bin/monitor.sh             committed   copy used by CI and launchd (M6)
+  bin/monitor.sh             committed   copy used by CI and launchd, with yaml2json.py
   runs/<slug>/               ignored     state.json, frozen.tsv, checks.snapshot.json, plan.frozen.md,
                                          baseline-failures, reports/, evidence/, review-pack/,
                                          stop-gate.log, gate-errors.log
-  incidents/I-<n>.md         ignored     incident issues when monitor.report is file (M6)
+  incidents/I-<n>.md         ignored     incident issues when monitor.report is file
 docs/specs/<slug>/           committed   request.md, prd.md, contract.json, plan.md, reviews/, feedback/
 docs/solutions/              committed   project knowledge (ce-compound)
 .claude/agent-memory/factory-<agent>/

@@ -4,13 +4,20 @@
 capture details; `evidence.sh` does the work.
 
 1. `n=$(bash $S/state.sh round evidence)`. Beyond `limits.evidence_rounds`: stop and ask the user.
-2. `bash $S/evidence.sh capture`: runs the `@AC-n` e2e specs under the demo config (video with action
-   and step overlays, a chapter per criterion, screenshots at each `evidence.viewports` size), converts
-   the video to mp4 when ffmpeg is available, and writes `<run>/evidence/`. With `evidence.driver:
-   command` it runs `evidence.capture`; with `none` it records test results only.
-3. `bash $S/evidence.sh pack`: builds `<run>/review-pack/index.html` (per criterion: text, tests, pass,
-   screenshots, video chapter; plus advisory findings, spend, and the PR link). `evidence.publish`, when
-   set, uploads it and prints a URL.
+2. `bash $S/evidence.sh capture`: runs the `@AC-n` e2e specs under `playwright.demo.config.ts` (a
+   video with the test title, steps and actions overlaid, and a screenshot, per test and per
+   `evidence.viewports` size), converts the videos to mp4 when ffmpeg is available, and writes
+   `<run>/evidence/` with `manifest.json`. With `evidence.driver: command` it runs `evidence.capture`;
+   with `none` it records test results only. Failing demo tests still produce evidence (exit 0, with a
+   warning: the pack shows them as not passing). Exit 1 means nothing was recorded: read
+   `<run>/evidence/run.log` (often a missing browser: `npx playwright install chromium`) and fix it
+   before asking anyone to review. Exit 2 is a config problem; a missing demo config: copy
+   `${CLAUDE_PLUGIN_ROOT}/templates/playwright.demo.config.ts` to the project root and commit it (it
+   isn't one of the frozen check-defining files).
+3. `bash $S/evidence.sh pack`: builds `<run>/review-pack/index.html` (per criterion: text, level, pass,
+   its demo tests and a card per viewport with the video and screenshot; then the advisory findings from
+   `<run>/advisory.json`, spend by stage and the PR link), self-contained with relative paths. When
+   `evidence.publish` is set it uploads the folder and prints `url: <url>`.
 4. Human gate (SKILL.md "Human gates"). **PR run**: commit and push, then `bash $S/pr.sh
    request-approval evidence --details -` with the pack's URL (`evidence.publish`; without it, say the
    pack is local at its path and attach nothing), the criteria table from contract.json, and the

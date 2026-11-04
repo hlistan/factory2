@@ -44,5 +44,7 @@
    their findings. Repeat until nothing blocks.
 9. Self-improvement (learning.md): one calibration line for each agent that missed a confirmed issue
    later found by another lens, QA or a human; ce-compound for each fixed or escalated blocking finding
-   that generalises. Advisory findings are listed at the stage 6 gate, not fixed automatically.
+   that generalises. Advisory findings are listed at the stage 6 gate, not fixed automatically: write
+   them, as the lenses reported them (`id`, `lens`, `severity`, `where`, `problem`, `fix`), as a JSON
+   list to `<run>/advisory.json`, which `evidence.sh pack` reads.
 10. All clear: commit, push, go to stage 6.

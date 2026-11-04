@@ -34,6 +34,39 @@ printf '{"criteria":[{"id":"AC-1","text":"a","test_ids":[],"passes":false},{"id"
 run python3 -I "$J" sync "$c" "$T_TMP/pass"
 t_code 0 "sync exits 0 when every criterion passes"
 
+# The same Go test in two reports: skipped by the unit run (no database), passed by the integration run.
+mkdir -p "$T_TMP/twice/unit-go" "$T_TMP/twice/integration"
+cat > "$T_TMP/twice/unit-go/unit-go.xml" <<'EOF'
+<testsuite><testcase classname="m/api" name="TestAC_1_Reads"><skipped message="needs INTEGRATION=1"/></testcase><testcase classname="m/api" name="TestAC_2_Writes"><skipped/></testcase><testcase classname="m/api" name="TestAC_3_Lists"/></testsuite>
+EOF
+cat > "$T_TMP/twice/integration/integration.xml" <<'EOF'
+<testsuite><testcase classname="m/api" name="TestAC_1_Reads"/><testcase classname="m/api" name="TestAC_3_Lists"><failure message="boom"/></testcase></testsuite>
+EOF
+printf '{"criteria":[{"id":"AC-1","text":"a","test_ids":[],"passes":false},{"id":"AC-2","text":"b","test_ids":[],"passes":false},{"id":"AC-3","text":"c","test_ids":[],"passes":false}]}' > "$c"
+run python3 -I "$J" sync "$c" "$T_TMP/twice"
+t_code 1 "sync exits 1 while AC-2 and AC-3 fail"
+t_eq "$(p AC-1)" "true" "AC-1: skipped by one report, passed by another, passes"
+t_eq "$(n AC-1)" "1" "AC-1 counts the test once"
+t_eq "$(p AC-2)" "false" "AC-2: skipped in every report is not a pass"
+t_eq "$(p AC-3)" "false" "AC-3: passed by one report, failed by another, fails"
+
+# red-tests (stage 5): a skip neither passes nor proves red.
+cat > "$T_TMP/twice/integration/integration.xml" <<'EOF'
+<testsuite><testcase classname="m/api" name="TestAC_1_Reads"><failure message="404"/></testcase><testcase classname="m/api" name="TestAC_3_Lists"/></testsuite>
+EOF
+run python3 -I "$J" red-tests "$T_TMP/twice" TestAC_1_Reads
+t_code 0 "red-tests: skipped by the unit run, failed by the integration run, is red"
+t_has "$OUT" "TestAC_1_Reads	RED" "names the red test"
+run python3 -I "$J" red-tests "$T_TMP/twice" TestAC_2_Writes
+t_code 1 "red-tests: a test every run skipped is flagged"
+t_has "$OUT" "TestAC_2_Writes	NOT-RUN" "says it never ran"
+run python3 -I "$J" red-tests "$T_TMP/twice" TestAC_3_Lists
+t_code 1 "red-tests: a test that passed anywhere is flagged"
+t_has "$OUT" "TestAC_3_Lists	PASSES-EARLY" "says it passes early"
+run python3 -I "$J" red-tests "$T_TMP/twice" TestAC_9_Nothing
+t_code 1 "red-tests: an unknown test is flagged"
+t_has "$OUT" "TestAC_9_Nothing	NOT-VISIBLE" "says it is not visible"
+
 cp "$FIX/junit/contract.json" "$c"
 run python3 -I "$J" red "$c" "$FIX/junit/red"
 t_code 1 "red check flags problems"

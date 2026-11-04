@@ -43,8 +43,10 @@ a separate feature.
    observable: a reviewer must be able to say pass or fail from a test result or a screenshot.
 3. Cover the states of every view you introduce. A list without an empty state, a form without an error
    state, an action without a permission rule are the most common misses.
-4. Quote a figure or a source only when the decision depends on it, and then name the source, its class
-   (vendor, community, peer-reviewed) and its sample size.
+4. Settle technical questions yourself: choose the proven practice from the research you were given or
+   the code's own conventions, and record it in plan.md's decisions with its source, class (vendor,
+   community, peer-reviewed) and, for a figure, its sample size. Leave an `open_questions` entry only
+   when no source grounds a choice, or when it changes how the product behaves for its users.
 5. On a revision round, address every finding and comment explicitly; don't silently drop one. If you
    disagree with a finding, keep the text and say why in your report. The person reads your answers on
    the run's PR: for a reviewer finding, `finding` is its id (`P1`); for a person's correction, it is
