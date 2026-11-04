@@ -20,12 +20,12 @@ factory_need jq python3
 set_name="fast"; only=""; json=""; tail_lines=40; save_failures=""; known_failures=""; live=0
 while [ $# -gt 0 ]; do
   case "$1" in
-    --set) set_name="${2:-}"; shift 2 ;;
-    --only) only="${2:-}"; shift 2 ;;
-    --json) json="${2:-}"; shift 2 ;;
-    --tail) tail_lines="${2:-40}"; shift 2 ;;
-    --save-failures) save_failures="${2:-}"; shift 2 ;;
-    --known-failures) known_failures="${2:-}"; shift 2 ;;
+    --set) set_name="${2:-}"; shift 2 || { echo "run-checks: $1 needs a value" >&2; exit 2; } ;;
+    --only) only="${2:-}"; shift 2 || { echo "run-checks: $1 needs a value" >&2; exit 2; } ;;
+    --json) json="${2:-}"; shift 2 || { echo "run-checks: $1 needs a value" >&2; exit 2; } ;;
+    --tail) tail_lines="${2:-40}"; shift 2 || { echo "run-checks: $1 needs a value" >&2; exit 2; } ;;
+    --save-failures) save_failures="${2:-}"; shift 2 || { echo "run-checks: $1 needs a value" >&2; exit 2; } ;;
+    --known-failures) known_failures="${2:-}"; shift 2 || { echo "run-checks: $1 needs a value" >&2; exit 2; } ;;
     --live) live=1; shift ;;
     -h|--help) sed -n '2,18p' "$0"; exit 0 ;;
     *) echo "run-checks: unknown argument: $1" >&2; exit 2 ;;

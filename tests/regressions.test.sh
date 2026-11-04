@@ -14,6 +14,18 @@ run bash "$S/run-checks.sh" --set fast --live --only multi;  t_code 1 "a multi-l
 run bash "$S/run-checks.sh" --set fast --live --only bs;     t_code 0 "a backslash reaches the command unchanged"
 run bash "$S/run-checks.sh" --set fast --live --json "$T_TMP/rc.json"
 t_eq "$(jq -r 'map(.name + ":" + (.exit|tostring)) | join(",")' "$T_TMP/rc.json")" "multi:1,bs:0" "--json survives multi-line commands"
+# An option missing its value is a usage error. `shift 2` with one argument left shifts nothing, so the
+# parser looped forever on it (a whole check run hung, idle, on a trailing `--known-failures`). perl's
+# alarm bounds the run, since macOS has no timeout(1): a hang ends in SIGALRM (exit 142), not 2.
+for opt in --set --only --json --tail --save-failures --known-failures; do
+  run perl -e 'alarm 10; exec @ARGV or die' bash "$S/run-checks.sh" --live "$opt"
+  t_code 2 "run-checks refuses $opt without a value"
+  t_has "$ERR" "run-checks: $opt needs a value" "and says $opt needs a value"
+done
+run perl -e 'alarm 10; exec @ARGV or die' bash "$S/change-diff.sh" HEAD --root
+t_code 2 "change-diff refuses --root without a value"; t_has "$ERR" "change-diff: --root needs a value" "and says so"
+run perl -e 'alarm 10; exec @ARGV or die' bash "$S/monitor.sh" issue --source x --title
+t_code 2 "monitor issue refuses --title without a value"; t_has "$ERR" "factory: --title needs a value" "and says so"
 # memory-inject: the injected text has no command substitution
 mkdir -p "$R/.claude/agent-memory/factory-planner"; printf -- '- x\n' > "$R/.claude/agent-memory/factory-planner/MEMORY.md"
 hook "$S/memory-inject.sh" '{"agent_type":"factory2:planner"}'

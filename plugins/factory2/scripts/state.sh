@@ -222,8 +222,8 @@ case "$cmd" in
     shift; sha=""; via=""; by=""
     while [ $# -gt 0 ]; do
       case "$1" in
-        --via-pr) via="${2:-}"; shift 2 ;;
-        --by) by="${2:-}"; shift 2 ;;
+        --via-pr) via="${2:-}"; shift 2 || { echo "factory: $1 needs a value" >&2; exit 2; } ;;
+        --by) by="${2:-}"; shift 2 || { echo "factory: $1 needs a value" >&2; exit 2; } ;;
         -*) echo "factory: approve <gate> [sha] [--via-pr <comment url> --by <login>]" >&2; exit 2 ;;
         *) sha="$1"; shift ;;
       esac

@@ -55,7 +55,7 @@ case "$cmd" in
     ac=""
     while [ $# -gt 0 ]; do
       case "$1" in
-        --ac) ac="${2:-}"; shift 2 ;;
+        --ac) ac="${2:-}"; shift 2 || { echo "factory: $1 needs a value" >&2; exit 2; } ;;
         *) echo "factory: capture [--ac AC-<n>]" >&2; exit 2 ;;
       esac
     done
@@ -104,7 +104,7 @@ case "$cmd" in
     findings="$run/advisory.json"
     while [ $# -gt 0 ]; do
       case "$1" in
-        --findings) findings="${2:-}"; shift 2 ;;
+        --findings) findings="${2:-}"; shift 2 || { echo "factory: $1 needs a value" >&2; exit 2; } ;;
         *) echo "factory: pack [--findings <json>]" >&2; exit 2 ;;
       esac
     done

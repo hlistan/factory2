@@ -20,7 +20,7 @@ while [ $# -gt 0 ]; do
   case "$1" in
     --stat) stat=1; shift ;;
     --hash) hash=1; shift ;;
-    --root) root="${2:-}"; shift 2 ;;
+    --root) root="${2:-}"; shift 2 || { echo "change-diff: $1 needs a value" >&2; exit 2; } ;;
     -h|--help) sed -n '2,11p' "$0"; exit 0 ;;
     -*) echo "change-diff: unknown option: $1" >&2; exit 2 ;;
     *) if [ -z "$base" ]; then base="$1"; shift; else echo "change-diff: one base only" >&2; exit 2; fi ;;

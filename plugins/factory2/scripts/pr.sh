@@ -377,7 +377,7 @@ case "$cmd" in
     timeout=0
     if [ "$cmd" = wait ]; then
       while [ $# -gt 0 ]; do
-        case "$1" in --timeout) timeout="${2:-0}"; shift 2 ;; *) echo "factory: wait <gate> [--timeout <s>]" >&2; exit 2 ;; esac
+        case "$1" in --timeout) timeout="${2:-0}"; shift 2 || { echo "factory: $1 needs a value" >&2; exit 2; } ;; *) echo "factory: wait <gate> [--timeout <s>]" >&2; exit 2 ;; esac
       done
     fi
     poll="$(cfg '.review.poll_seconds' 60)"; case "$poll" in ''|*[!0-9]*) poll=60 ;; esac

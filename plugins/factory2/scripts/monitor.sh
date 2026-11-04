@@ -179,9 +179,9 @@ EOF
     src="monitor"; out=""; title=""
     while [ $# -gt 0 ]; do
       case "$1" in
-        --source) src="${2:-}"; shift 2 ;;
-        --output) out="${2:-}"; shift 2 ;;
-        --title) title="${2:-}"; shift 2 ;;
+        --source) src="${2:-}"; shift 2 || { echo "factory: $1 needs a value" >&2; exit 2; } ;;
+        --output) out="${2:-}"; shift 2 || { echo "factory: $1 needs a value" >&2; exit 2; } ;;
+        --title) title="${2:-}"; shift 2 || { echo "factory: $1 needs a value" >&2; exit 2; } ;;
         *) echo "factory: issue --source <name> --output <file> [--title <text>]" >&2; exit 2 ;;
       esac
     done
