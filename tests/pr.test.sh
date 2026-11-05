@@ -22,6 +22,13 @@ case "$1 $2" in
   "pr view") [ -f "$FAKE/pr.json" ] || { echo "no pull requests found" >&2; exit 1; }
     jq --argjson l "$(jq -R '{name: .}' "$FAKE/labels" 2>/dev/null | jq -s .)" '. + {labels: $l}' "$FAKE/pr.json" ;;
   "label create") printf '%s\n' "$3" >> "$FAKE/repo_labels" ;;
+  "issue view") jq -n --argjson l "$(jq -R '{name: .}' "$FAKE/issue_labels" 2>/dev/null | jq -s .)" '{labels: $l}' ;;
+  "issue edit")
+    printf '%s\n' "${*:3}" >> "$FAKE/issue_edits"; shift 3; touch "$FAKE/issue_labels"
+    while [ $# -gt 0 ]; do case "$1" in
+      --add-label) printf '%s\n' "$2" | tr ',' '\n' >> "$FAKE/issue_labels"; shift 2 ;;
+      --remove-label) printf '%s\n' "$2" | tr ',' '\n' > "$FAKE/rm"; grep -vxF -f "$FAKE/rm" "$FAKE/issue_labels" > "$FAKE/l2"; mv "$FAKE/l2" "$FAKE/issue_labels"; shift 2 ;;
+      *) shift ;; esac; done ;;
   "pr create") printf '{"number":7,"url":"https://github.com/o/r/pull/7","state":"OPEN"}' > "$FAKE/pr.json"; echo https://github.com/o/r/pull/7 ;;
   "pr edit")
     shift 3
@@ -80,7 +87,8 @@ t_eq "$(git -C "$BARE" rev-parse refs/heads/factory/dark-mode)" "$(git -C "$R" r
 t_has "$(cat "$FAKE/calls")" "pr create --draft --fill" "ship.pr_open opened the draft PR"
 t_eq "$(bash "$S/state.sh" get .pr)" "7" "PR number recorded"
 t_eq "$(cat "$FAKE/title")" "dark-mode: Add a dark-mode toggle" "PR title from the request"
-t_eq "$(cat "$FAKE/labels")" "factory2" "the run's PR is labelled factory2"
+t_eq "$(sort "$FAKE/labels" | tr '\n' ' ')" "factory2 factory2:stage-1-plan " "the run's PR is labelled factory2 and its stage"
+t_has "$(cat "$FAKE/repo_labels")" "factory2:stage-8-monitor" "a label for every stage created in the repository"
 t_has "$(cat "$FAKE/repo_labels")" "factory2:awaiting-prd" "gate labels created in the repository"
 t_has "$(cat "$FAKE/repo_labels")" "factory2:approved-evidence" "for both gates"
 t_hasnt "$(cat "$FAKE/repo_labels")" "deploy" "deploy is not a gate"
@@ -225,6 +233,9 @@ run bash "$P" request-approval merge;          t_code 2 "unknown gate"
 bash "$S/state.sh" stage 7 >/dev/null; bash "$S/state.sh" stage 5 >/dev/null
 t_hasnt "$(cat "$FAKE/labels")" "approved-evidence" "revoked approval's label removed"
 t_has "$(cat "$FAKE/labels")" "factory2:approved-prd" "earlier approvals keep their labels"
+t_eq "$(grep -c 'stage-' "$FAKE/labels")" "1" "one stage label at a time"
+t_has "$(cat "$FAKE/labels")" "factory2:stage-5-review" "the stage label follows the run back"
+t_hasnt "$(cat "$FAKE/issue_edits" 2>/dev/null)" "factory2" "a run without an issue labels no issue"
 
 # --- review.via: terminal
 R2="$(new_repo)"; FACTORY_ROOT="$R2"
@@ -235,4 +246,49 @@ CODE=0; bash "$P" open <<< "x" >/dev/null 2>&1 || CODE=$?
 t_code 3 "review.via terminal"
 t_eq "$(bash "$S/state.sh" get .review_via)" "terminal" "terminal gates recorded"
 run bash "$S/state.sh" approve prd;            t_code 0 "terminal approval works when not on a PR"
+bash "$S/state.sh" end >/dev/null
+
+# --- the issue a run was started from carries its stage, on a terminal run too
+run bash "$S/state.sh" start wp --feature;     t_code 2 "--feature without --issue"
+run bash "$S/state.sh" start wp --issue 47 --feature; t_code 0 "a feature run from an issue"
+t_eq "$(bash "$S/state.sh" get .kind)" "feature" "it is a feature run"
+t_eq "$(bash "$S/state.sh" get .issue)" "47" "that tracks the issue"
+t_eq "$(sort "$FAKE/issue_labels" | tr '\n' ' ')" "factory2 factory2:stage-1-plan " "the issue is labelled at start"
+bash "$S/state.sh" stage 4 >/dev/null
+t_eq "$(sort "$FAKE/issue_labels" | tr '\n' ' ')" "factory2 factory2:stage-4-implement " "entering a stage replaces the issue's stage label"
+t_has "$(tail -n 1 "$FAKE/issue_edits")" "47 --add-label factory2:stage-4-implement --remove-label factory2:stage-1-plan" "in one edit of that issue"
+printf 'triage\n' >> "$FAKE/issue_labels"
+bash "$S/state.sh" stage 5 >/dev/null
+t_has "$(cat "$FAKE/issue_labels")" "triage" "the maintainers' own labels stay"
+n_edits="$(wc -l < "$FAKE/issue_edits")"
+run bash "$P" labels;                          t_code 0 "labels again"
+t_eq "$(wc -l < "$FAKE/issue_edits")" "$n_edits" "no edit when the labels already match"
+bash "$S/state.sh" end >/dev/null
+run bash "$S/state.sh" start fix-1 --issue .factory/incidents/I-1.md; t_code 0 "a bugfix run from a local incident"
+t_eq "$(bash "$S/state.sh" get .kind)" "bugfix" "is a bugfix run"
+t_eq "$(wc -l < "$FAKE/issue_edits")" "$n_edits" "and labels no GitHub issue"
+run bash "$P" labels;                          t_code 1 "labels with neither a PR nor a GitHub issue"
+bash "$S/state.sh" end >/dev/null
+
+# --- issues.stage_labels: the project's own workflow labels instead of factory2's
+write_config "$R2" 'review:
+  via: terminal
+issues:
+  link_keyword: Implements
+  stage_labels: {1: "stage:2-planning", 4: "stage:5-in-development", 7: "stage:7-merge-ready", merged: "stage:8-verification"}'
+printf 'stage:1-idea\npriority:p1\nfactory2\nfactory2:stage-4-implement\n' > "$FAKE/issue_labels"
+run bash "$S/state.sh" start wp2 --issue 48 --feature; t_code 0 "a run on a project with its own stage labels"
+t_eq "$(sort "$FAKE/issue_labels" | tr '\n' ' ')" "priority:p1 stage:1-idea stage:2-planning " "the mapped label only; factory2's own are removed"
+bash "$S/state.sh" stage 4 >/dev/null
+t_eq "$(sort "$FAKE/issue_labels" | tr '\n' ' ')" "priority:p1 stage:1-idea stage:5-in-development " "the map's earlier label is replaced; unmapped labels stay"
+bash "$S/state.sh" stage 5 >/dev/null
+t_has "$(cat "$FAKE/issue_labels")" "stage:5-in-development" "an unmapped stage keeps the last mapped label"
+bash "$S/state.sh" stage 7 >/dev/null
+bash "$S/state.sh" set '.ship.merged = {sha: "abc"}' >/dev/null
+run bash "$P" labels;                          t_code 0 "labels after the merge"
+t_eq "$(sort "$FAKE/issue_labels" | tr '\n' ' ')" "priority:p1 stage:1-idea stage:8-verification " "merged: the project's label for it"
+printf '  stage_label_prefix: "stage:"\n' >> "$R2/.factory/config.yaml"
+bash "$S/state.sh" set '.ship.merged = null' >/dev/null
+run bash "$P" labels;                          t_code 0 "labels with a prefix"
+t_eq "$(sort "$FAKE/issue_labels" | tr '\n' ' ')" "priority:p1 stage:7-merge-ready " "the prefix clears labels the map never sets"
 t_done

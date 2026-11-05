@@ -42,6 +42,8 @@ t_has "$OUT" "covered" "reports the commits covered"
 
 # the bookkeeping commit: calibration lines folded into memory, and the run's history
 bash "$S/state.sh" calibrate prd-reviewer "2026-11-03 shipit: check every list view for an empty state" >/dev/null
+# A line cut at calibrate's length limit can end in a space; verify compares lines without edge whitespace.
+bash "$S/state.sh" calibrate test-reviewer "2026-11-03 shipit: a lesson cut at the limit (e.g. a missing page) " >/dev/null
 bash "$S/state.sh" fold-memory >/dev/null 2>&1
 mkdir -p "$R/docs/solutions/logic-errors"; printf -- '---\ntitle: lesson\n---\n' > "$R/docs/solutions/logic-errors/lesson.md"
 git -C "$R" add -A .claude .factory/history docs/solutions && git -C "$R" commit -q -m "factory(shipit): fold memory"

@@ -201,6 +201,32 @@ def at_base(root, base, path):
     return r.stdout if r.returncode == 0 else None
 
 
+def from_default_branch(root, cfg, run, path):
+    """True when a frozen file is as origin/<project.default_branch> has it: changed or removed there,
+    reviewed and merged on that branch, then merged into the run's branch. Such a change isn't the run's.
+    A removal counts only for a file that existed at the run's base, so removing a file the run added
+    (never on the default branch) still counts."""
+    branch = ((cfg or {}).get("project") or {}).get("default_branch") or "main"
+    ref = f"origin/{branch}"
+    if subprocess.run(["git", "-C", root, "rev-parse", "--verify", "--quiet", f"{ref}^{{commit}}"],
+                      capture_output=True).returncode != 0:
+        return False
+    upstream = at_base(root, ref, path)
+    here = os.path.join(root, path)
+    if not os.path.isfile(here):
+        base = None
+        try:
+            with open(os.path.join(run, "state.json"), encoding="utf-8") as f:
+                base = json.load(f).get("base")
+        except (OSError, ValueError):
+            pass
+        return upstream is None and bool(base) and at_base(root, base, path) is not None
+    if upstream is None:
+        return False
+    with open(here, "rb") as f:
+        return f.read() == upstream
+
+
 def base_check(root, cfg, plan, base):
     """First freeze: the check-defining files must match commit `base` (the run's start), except for
     what the plan's `## Exceptions` section names, under the same rules as verify()."""
@@ -275,6 +301,8 @@ def verify(root, run, cfg, plan, lists=("tests", "checks")):
         frozen_paths.add(p)
         if lst not in lists:
             continue
+        if p != CONFIG_PATH and from_default_branch(root, cfg, run, p):
+            continue  # reviewed and merged on the default branch, then merged in
         if not os.path.isfile(os.path.join(root, p)):
             if p not in exc:
                 problems.append((p, f"a frozen {'test' if lst == 'tests' else 'check-defining'} file was deleted"))

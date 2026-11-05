@@ -8,7 +8,7 @@
 #                       commit); and every check is green (the frozen
 #                       snapshot; failures known at the baseline are allowed). Records ship.verified.
 #   ship.sh merge       HEAD must be the verified commit and pushed. Runs ship.merge, then records the merged
-#                       commit on origin/<default_branch> as ship.merged.
+#                       commit on origin/<default_branch> as ship.merged and refreshes the issue's label.
 #   ship.sh deploy      runs ship.deploy (FACTORY_DEPLOY_SHA = the merged commit). Stage 7, evidence approved,
 #                       merged. An empty ship.deploy is skipped (exit 0) and recorded as skipped.
 #   ship.sh smoke       runs ship.smoke against the deployment; output in <run>/smoke.log. Empty: skipped.
@@ -64,7 +64,8 @@ bad = [f for f in files if not (re.match(r"^\.claude/agent-memory/factory-[A-Za-
 if bad:
     print("touches " + ", ".join(bad)); sys.exit(1)
 try:
-    cal = {(x.get("line") or "").replace("\n", " ") for x in json.load(open(hist)).get("calibration") or []}
+    # stripped, as the added lines are below: a line cut at calibrate's length limit can end in a space
+    cal = {(x.get("line") or "").replace("\n", " ").strip() for x in json.load(open(hist)).get("calibration") or []}
 except Exception:
     cal = set()
 added, removed = [], set()
@@ -128,6 +129,7 @@ case "$cmd" in
     G fetch -q origin "$default" || die "couldn't fetch origin/$default after the merge"
     merged="$(G rev-parse "origin/$default")"
     state_update '.ship.merged = {sha: $s, at: $at}' --arg s "$merged" --arg at "$(now_utc)"
+    bash "$FACTORY_SCRIPTS/pr.sh" labels >/dev/null 2>&1 || true   # the issue's "merged" label, best effort
     echo "factory: merged; origin/$default is at ${merged:0:12}"
     ;;
 

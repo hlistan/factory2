@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 # factory run state. The orchestrator (/factory2:run) calls these; hooks read the same files.
-#   state.sh start <slug> [--effort-env-ok] [--issue <ref>] [--caused-by <slug>]
+#   state.sh start <slug> [--effort-env-ok] [--issue <ref> [--feature]] [--caused-by <slug>]
 #                                    begin a run in this checkout: state.json, lock, port, history. --issue
 #                                    makes it a bugfix run for that tracker issue (GitHub number, URL, or a
-#                                    local .factory/incidents/I-n.md); --caused-by names the run that shipped
+#                                    local .factory/incidents/I-n.md); with --feature, a feature run that
+#                                    builds what the issue asks for. --caused-by names the run that shipped
 #                                    the regression, when known.
 #   state.sh resume <slug> [--effort-env-ok]  make an existing run the active one
 #                                    Both exit 3 while CLAUDE_CODE_EFFORT_LEVEL is set: it overrides every
@@ -14,7 +15,8 @@
 #   state.sh active                  print the active slug (exit 1 if none)
 #   state.sh get <jq filter>         read state.json             state.sh set <jq expression> [jq args]
 #   state.sh stage <n>               enter stage n (prices the main session's usage so far first); going
-#                                    back revokes the approvals of gates at stage n or later
+#                                    back revokes the approvals of gates at stage n or later. The stage
+#                                    label on the run's PR and GitHub issue follows (pr.sh labels).
 #   state.sh phase <name>            plan|prd-review|tests|code|docs|review|evidence|ship|monitor
 #   state.sh round <name>            increment a round counter (prd, impl, review, evidence) and print it
 #   state.sh approve <gate> [sha] [--via-pr <url> --by <login>]
@@ -65,6 +67,13 @@ slug_ok() { printf '%s' "$1" | grep -E -q '^[a-z0-9][a-z0-9._-]{0,63}$'; }
 need_active() { slug="$(factory_active_slug)"; [ -n "$slug" ] || { echo "factory: no active run in this checkout (state.sh start <slug>)" >&2; exit 1; }; run="$runs/$slug"; }
 spec_dir() { printf '%s/docs/specs/%s' "$root" "$1"; }
 history_file() { printf '%s/.factory/history/%s.json' "$root" "$1"; }
+refresh_labels() { # best effort: the stage label on the run's PR and GitHub issue; the next pr.sh call retries
+  case "$(state_get '.issue // empty')" in
+    [0-9]*|'#'[0-9]*|https://*/issues/[0-9]*) ;;
+    *) [ "$(state_get '.review_via // empty')" = pr ] || return 0 ;;
+  esac
+  bash "$FACTORY_SCRIPTS/pr.sh" labels >/dev/null 2>&1 || true
+}
 config_json_file() { # written atomically: hooks and the orchestrator may call this at the same time
   local f="$run/.config.json"
   factory_config_json > "$f.tmp.$$" || { rm -f "$f.tmp.$$"; echo "factory: .factory/config.yaml doesn't parse" >&2; exit 2; }
@@ -121,15 +130,18 @@ SPEND_TOTAL="($SPEND_BY_STAGE) | [.[]] | add // 0"
 case "$cmd" in
   start)
     slug="${1:-}"; [ $# -gt 0 ] && shift
-    eok=""; issue=""; caused=""
+    eok=""; issue=""; caused=""; feature=""
     while [ $# -gt 0 ]; do
       case "$1" in
         --effort-env-ok) eok="$1"; shift ;;
         --issue) [ -n "${2:-}" ] || { echo "factory: --issue needs a reference" >&2; exit 2; }; issue="$2"; shift 2 ;;
+        --feature) feature=1; shift ;;
         --caused-by) slug_ok "${2:-}" || { echo "factory: --caused-by needs a run slug" >&2; exit 2; }; caused="$2"; shift 2 ;;
         *) echo "factory: unknown start option '$1'" >&2; exit 2 ;;
       esac
     done
+    [ -z "$feature" ] || [ -n "$issue" ] || { echo "factory: --feature needs --issue" >&2; exit 2; }
+    kind=bugfix; [ -z "$issue" ] || [ -z "$feature" ] || kind=feature
     effort_env_gate "$eok"
     slug_ok "$slug" || { echo "factory: slug must be lowercase letters, digits, . _ - (max 64)" >&2; exit 2; }
     cur="$(factory_active_slug)"
@@ -142,9 +154,9 @@ case "$cmd" in
       port="$(derive_port "$slug")"
       base="$(git -C "$root" rev-parse HEAD 2>/dev/null || echo "")"
       jq -n --arg slug "$slug" --arg at "$(now_utc)" --arg base "$base" --argjson port "${port:-0}" \
-        --arg ce "$(ce_version || true)" --arg issue "$issue" --arg caused "$caused" '{
+        --arg ce "$(ce_version || true)" --arg issue "$issue" --arg caused "$caused" --arg kind "$kind" '{
           slug: $slug, created: $at, stage: 1, phase: "plan", base: $base, branch: ("factory/" + $slug),
-          kind: (if $issue == "" then "feature" else "bugfix" end),
+          kind: (if $issue == "" then "feature" else $kind end),
           issue: (if $issue == "" then null else $issue end), caused_by: (if $caused == "" then null else $caused end),
           port: $port, rounds: {prd: 0, impl: 0, review: 0, evidence: 0}, approvals: {}, pr: null,
           frozen: false, spawns: [], compound: [], escalations: [], ce_version: $ce,
@@ -153,9 +165,9 @@ case "$cmd" in
     fi
     hf="$(history_file "$slug")"
     if [ ! -f "$hf" ]; then
-      jq -n --arg slug "$slug" --arg at "$(now_utc)" --arg ce "$(ce_version || true)" --arg issue "$issue" --arg caused "$caused" '{
+      jq -n --arg slug "$slug" --arg at "$(now_utc)" --arg ce "$(ce_version || true)" --arg issue "$issue" --arg caused "$caused" --arg kind "$kind" '{
         slug: $slug, started: $at, finished: null, ce_version: $ce, depth: null,
-        kind: (if $issue == "" then "feature" else "bugfix" end),
+        kind: (if $issue == "" then "feature" else $kind end),
         issue: (if $issue == "" then null else $issue end), caused_by: (if $caused == "" then null else $caused end),
         issues: [], qa_false_negatives: [], implementer_passes: [], rounds: {}, escalations: [],
         incidents: [], spend: {}, models: [], compound: [], calibration: []
@@ -164,6 +176,7 @@ case "$cmd" in
     printf '%s\n' "$slug" > "$runs/active"
     state_update '.effort_env = (if $e == "" then null else $e end)' --arg e "${CLAUDE_CODE_EFFORT_LEVEL:-}"
     echo "factory: run '$slug' active (port $(jq -r .port "$run/state.json"))"
+    refresh_labels
     ;;
   branch)
     # stage 1: switch to (or create) factory/<slug>, then record the run's base as the commit the branch
@@ -201,12 +214,8 @@ case "$cmd" in
     # given at that stage or later: an approval holds only for the pass through the stages it was given in
     revoked="$(jq -r --argjson n "$n" 'if $n < (.stage // 1) then [.approvals // {} | keys[] | select(({prd: 2, evidence: 6}[.] // 0) >= $n)] | join(" ") else "" end' "$(state_file)")"
     state_update '(if $n < (.stage // 1) then .approvals |= with_entries(select(({prd: 2, evidence: 6}[.key] // 0) < $n)) else . end) | .stage = $n | .stage_entered = $at' --argjson n "$n" --arg at "$(now_utc)"
-    if [ -n "$revoked" ]; then
-      echo "factory: back to stage $n; approvals revoked: $revoked"
-      # the PR's labels follow (best effort: the next pr.sh call refreshes them anyway)
-      [ "$(state_get '.review_via // empty')" = pr ] && bash "$FACTORY_SCRIPTS/pr.sh" labels >/dev/null 2>&1
-    fi
-    true
+    [ -z "$revoked" ] || echo "factory: back to stage $n; approvals revoked: $revoked"
+    refresh_labels
     ;;
   phase)
     need_active
@@ -264,6 +273,14 @@ case "$cmd" in
     # the snapshot's hash, so a deleted or rewritten plan.frozen.md is caught by verify-freeze
     state_update '.frozen = true | .frozen_at = $at | .frozen_sha = $sha | .frozen_plan_sha = $p' --arg at "$(now_utc)" \
       --arg sha "$(git -C "$root" rev-parse HEAD 2>/dev/null)" --arg p "$(sha256_of "$run/plan.frozen.md")"
+    # Test results from before this freeze are the red check's, failing by design; contract-sync fails a
+    # test that any report failed, so they would outlive the code that makes them pass. Keep them as
+    # evidence in red-reports/<time>/; the review reports (files, not directories) stay.
+    if [ -d "$run/reports" ] && [ -n "$(find "$run/reports" -mindepth 1 -maxdepth 1 -type d -print -quit)" ]; then
+      red="$run/red-reports/$(date -u +%Y%m%dT%H%M%SZ)"; mkdir -p "$red"
+      find "$run/reports" -mindepth 1 -maxdepth 1 -type d -exec mv {} "$red/" \;
+      echo "freeze: earlier test results moved to ${red#"$root"/}"
+    fi
     ;;
   verify-freeze)
     need_active; cj="$(config_json_file)"

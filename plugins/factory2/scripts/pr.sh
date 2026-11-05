@@ -23,9 +23,14 @@
 #                                  (exit 4 on timeout)
 #   pr.sh body                     refreshes the PR description (artifacts, approvals, review ledger) and
 #                                  the labels
-#   pr.sh labels                   sets the PR's factory2 labels from the run state: factory2 on every run,
-#                                  factory2:awaiting-approval and factory2:awaiting-<gate> while a request
-#                                  waits, factory2:approved-<gate> per approval held
+#   pr.sh labels                   sets the factory2 labels from the run state. The PR: factory2,
+#                                  factory2:stage-<n>-<name>, factory2:awaiting-approval and
+#                                  factory2:awaiting-<gate> while a request waits, factory2:approved-<gate>
+#                                  per approval held. The run's GitHub issue (state .issue, also on a
+#                                  terminal run): factory2 and the stage label, or, with
+#                                  issues.stage_labels set, exactly the project's label mapped to the stage
+#                                  ("merged" after ship.sh merge). state.sh start and stage, and ship.sh
+#                                  merge, call it, so the issue list shows where each run is.
 # Only people allowed by review.reviewers (default: the repository's owners, members and collaborators)
 # are read; other comments are reported as ignored. factory's own comments carry a marker,
 # <!-- factory2:<slug>:<kind> -->, and are never read as the person's.
@@ -164,32 +169,77 @@ plan_md() { # <sha>: what will be built (the criteria) and how (plan.md), for th
   fi
 }
 
+STAGES="1:plan 2:prd-review 3:prd-fix 4:implement 5:review 6:evidence 7:ship 8:monitor"
+stage_label() { # <n>: factory2:stage-<n>-<name>
+  local e; for e in $STAGES; do [ "${e%%:*}" = "$1" ] && { echo "factory2:stage-$1-${e#*:}"; return; }; done
+}
+stage_what() {
+  case "$1" in
+    1) echo "planning: PRD, acceptance criteria and plan" ;; 2) echo "the PRD is under review" ;;
+    3) echo "the PRD is being revised" ;; 4) echo "tests first, then code and docs" ;;
+    5) echo "code review and fixes" ;; 6) echo "evidence for the maintainer's approval" ;;
+    7) echo "merging and deploying" ;; 8) echo "shipped; production is monitored" ;;
+  esac
+}
+issue_ref() { # the run's GitHub issue as gh takes it (a number or an issues URL); empty for a local incident file
+  local i; i="$(state_get '.issue // empty')"
+  case "$i" in
+    ''|*[!0-9#]*) case "$i" in https://*/issues/[0-9]*) echo "$i" ;; esac ;;
+    *) echo "${i#\#}" ;;
+  esac
+}
+
 label_spec() { # name<TAB>color<TAB>description for each label factory uses
+  local e
   printf 'factory2\t5319e7\ta factory2 run\n'
   printf 'factory2:awaiting-approval\tfbca04\tfactory2 waits for your /approve\n'
   for g in $GATES; do
     printf 'factory2:awaiting-%s\tfbca04\tfactory2 waits for your /approve: %s\n' "$g" "$(gate_what "$g")"
     printf 'factory2:approved-%s\t0e8a16\tapproved: %s\n' "$g" "$(gate_what "$g")"
   done
+  for e in $STAGES; do printf '%s\t1d76db\tfactory2 stage %s: %s\n' "$(stage_label "${e%%:*}")" "${e%%:*}" "$(stage_what "${e%%:*}")"; done
 }
 
-labels() {
-  local want have add="" rm="" l
-  need_pr
-  if [ "$(state_get '.labels_ready // false')" != true ]; then
-    label_spec | while IFS="$(printf '\t')" read -r name color desc; do
-      gh_ label create "$name" --color "$color" --description "$desc" --force >/dev/null 2>&1 || true
-    done
-    state_update '.labels_ready = true'
-  fi
-  want="$(state_get '.' | jq -r '"factory2",
-    (if .approval_request then "factory2:awaiting-approval", "factory2:awaiting-\(.approval_request.gate)" else empty end),
-    (.approvals // {} | keys[] | "factory2:approved-\(.)")')"
-  have="$(gh_ pr view "$(pr_num)" --json labels 2>/dev/null | jq -r '.labels[]?.name | select(startswith("factory2"))')"
+sync_labels() { # <pr|issue> <ref> <wanted> [<managed> [<prefix>]]: among the factory2 labels, the managed
+  # ones (newline-separated names) and those starting with the prefix, it keeps exactly the wanted ones;
+  # every other label stays
+  local kind="$1" ref="$2" want="$3" managed="${4:-}" prefix="${5:-}" have add="" rm="" l
+  have="$(gh_ "$kind" view "$ref" --json labels 2>/dev/null | jq -r --arg m "$managed" --arg p "$prefix" '($m | split("\n")) as $ms
+    | .labels[]?.name | select(startswith("factory2") or ($p != "" and startswith($p)) or (. as $n | $ms | index($n)))')"
   for l in $want; do printf '%s\n' "$have" | grep -qx -- "$l" || add="$add,$l"; done
   for l in $have; do printf '%s\n' "$want" | grep -qx -- "$l" || rm="$rm,$l"; done
   [ -z "$add$rm" ] && return 0
-  gh_ pr edit "$(pr_num)" ${add:+--add-label "${add#,}"} ${rm:+--remove-label "${rm#,}"} >/dev/null || echo "factory: updating the PR's labels failed" >&2
+  gh_ "$kind" edit "$ref" ${add:+--add-label "${add#,}"} ${rm:+--remove-label "${rm#,}"} >/dev/null || echo "factory: updating the $kind's labels failed" >&2
+}
+
+# The run's labels: on its PR, factory2, the stage, and the approvals waiting and held; on the issue it
+# was started from, factory2 and the stage, so maintainers see each issue's progress in the issue list.
+labels() {
+  local pr="" issue stage spec_hash key mapped own
+  [ "$(state_get '.review_via // empty')" = pr ] && pr="$(pr_num)"
+  issue="$(issue_ref)"
+  [ -n "$pr$issue" ] || die "this run has neither a PR nor a GitHub issue to label"
+  spec_hash="$(label_spec | cksum | cut -d' ' -f1)"
+  if [ "$(state_get '.labels_ready // empty')" != "$spec_hash" ]; then
+    label_spec | while IFS="$(printf '\t')" read -r name color desc; do
+      gh_ label create "$name" --color "$color" --description "$desc" --force >/dev/null 2>&1 || true
+    done
+    state_update '.labels_ready = $h' --arg h "$spec_hash"
+  fi
+  stage="$(stage_label "$(state_get '.stage // 1')")"
+  # the project's own label for this stage (issues.stage_labels), "merged" once the merge is recorded
+  key="$(state_get 'if .ship.merged then "merged" else (.stage // 1 | tostring) end')"
+  mapped="$(factory_config_json | jq -r '.issues.stage_labels // {} | to_entries[] | .value | strings')"
+  own="$(factory_config_json | jq -r --arg k "$key" '.issues.stage_labels // {} | .[$k] // empty')"
+  [ -n "$pr" ] && sync_labels pr "$pr" "$(state_get '.' | jq -r --arg st "$stage" '"factory2", $st,
+    (if .approval_request then "factory2:awaiting-approval", "factory2:awaiting-\(.approval_request.gate)" else empty end),
+    (.approvals // {} | keys[] | "factory2:approved-\(.)")')"
+  # a stage the map leaves out keeps the label of the last mapped one
+  if [ -n "$issue" ] && [ -n "$mapped" ]; then
+    [ -z "$own" ] || sync_labels issue "$issue" "$own" "$mapped" "$(cfg '.issues.stage_label_prefix')"
+  elif [ -n "$issue" ]; then sync_labels issue "$issue" "factory2
+$stage"; fi
+  return 0
 }
 
 artifact_what() {
@@ -202,16 +252,15 @@ artifact_what() {
 }
 
 body() {
-  local f n pr url head kind issue fixes ff any r rf pf
+  local f n pr url head kind issue fixes ff any r rf pf kw
   need_pr
   url="$(repo_url)"; n="$(round)"; f="$run/.pr-body.md"
   kind="$(state_get '.kind // "feature"')"; issue="$(state_get '.issue // empty')"; fixes=""
-  if [ "$kind" = bugfix ]; then
-    case "$issue" in
-      ''|*[!0-9]*) case "$issue" in https://*/issues/[0-9]*) fixes="Fixes $issue" ;; esac ;;
-      *) fixes="Fixes #$issue" ;;
-    esac
-  fi
+  kw="$(cfg '.issues.link_keyword' Fixes)"
+  case "$issue" in
+    ''|*[!0-9]*) case "$issue" in https://*/issues/[0-9]*) fixes="$kw $issue" ;; esac ;;
+    *) fixes="$kw #$issue" ;;
+  esac
   {
     marker body; echo
     printf '## factory2 run `%s` (%s)\n\n' "$slug" "$kind"

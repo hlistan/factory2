@@ -420,13 +420,26 @@ Each is recorded in `approvals.<gate>` with the commit, your login and the comme
 | `factory2:awaiting-approval` | An approval request waits for your `/approve` (any gate) |
 | `factory2:awaiting-<gate>` | The same, per gate: `prd` (the plan), `evidence` |
 | `factory2:approved-<gate>` | That approval is held; removed if the run goes back past the gate |
+| `factory2:stage-<n>-<name>` | The stage the run is in: `1-plan`, `2-prd-review`, `3-prd-fix`, `4-implement`, `5-review`, `6-evidence`, `7-ship`, `8-monitor`. Exactly one at a time |
 
 `gh pr list --label factory2:awaiting-approval` (or the same filter in GitHub's PR list) shows every
 run waiting for someone. The PR description also links the waiting request.
 
+**Following a feature on its issue.** A run started from a GitHub issue (`/factory2:run --issue <n>`,
+for a bug or a feature) labels that issue `factory2` and with its stage label, and moves the stage label
+as the run moves, on a terminal run too. `gh issue list --label factory2` shows which issues are in
+development and where each one stands; `--label factory2:stage-6-evidence` shows the ones waiting for
+evidence review. factory changes only its own `factory2` labels; the issue's other labels stay. The
+stage-8 label stays while production is monitored. If your project already has workflow labels
+(`status:in-review`, `stage:5-in-development`), set `issues.stage_labels` to map factory's stages (and
+`merged`) onto them, with `issues.stage_label_prefix` naming the set: the issue then carries only your
+label, and factory2 adds none of its own. Leave the map empty while an automation of yours moves those
+labels. `issues.link_keyword` is the word the PR body names the issue with: `Fixes` by default, which
+closes it at the merge, or your flow's own word, such as `Implements`.
+
 Silence or an earlier approval never counts. Comments are always saved word for word under
 `docs/specs/<slug>/feedback/`. With `review.via: terminal` (or without gh, its login or an `origin`
-remote) the same gates are asked in Claude Code instead, and there are no labels.
+remote) the same gates are asked in Claude Code instead, and there are no PR labels.
 
 **The PRD gate is the cheapest place to steer.** Everything downstream is judged against the acceptance
 criteria, so a missing state ("what does the empty list look like?") is far cheaper to add here than at
@@ -470,6 +483,8 @@ The commits are labelled by sub-phase, so the PR reads in order:
 | `limits.evidence_rounds` | 3 | Asks you |
 | `limits.budget_usd` | 60 | Pauses at the next gate |
 | `review.via` | `pr` | `pr`: the draft PR opens at the start, and every gate is held there (comments, `/approve`, labels). `terminal`: gates in Claude Code |
+| `issues.link_keyword` | `Fixes` | How the PR body names the run's issue (`Closes`, or your flow's word, such as `Implements`) |
+| `issues.stage_labels`, `issues.stage_label_prefix` | `{}`, `""` | Map factory's stages (1-8, `merged`) onto your own issue labels instead of `factory2:stage-*` |
 | `review.reviewers` | `[]` | GitHub logins whose PR comments count; empty means the repository's owners, members and collaborators |
 
 Each escalation is recorded in history, so `/factory2:stats` can show where runs get stuck.

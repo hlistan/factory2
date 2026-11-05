@@ -24,11 +24,15 @@ fail from exit codes. Arguments: `$ARGUMENTS`.
    only on that confirmation repeat the command with `--effort-env-ok`.
 2. The first argument is a **slug** if `.factory/runs/<arg>/state.json` exists: `bash $S/state.sh resume
    <slug>`, read `bash $S/state.sh get .` and continue at the recorded stage (or `--from <n>`).
-   `--issue <ref>` (a GitHub issue number or URL, or `.factory/incidents/I-n.md`) starts a **bugfix
-   run**: read the issue with its comments (`gh issue view <n> --comments`, or the file), derive the slug
-   `fix-<n>-<few words>`, confirm it in one line, then `bash $S/state.sh start <slug> --issue <ref>`
-   (plus `--caused-by <slug>` when the issue names the run that shipped the regression). It is a normal
-   run through every stage and gate; stages-1-3.md and stages-7-8.md say what differs.
+   `--issue <ref>` (a GitHub issue number or URL, or `.factory/incidents/I-n.md`): read the issue with its
+   comments (`gh issue view <n> --comments`, or the file). When it reports a defect or an incident, it
+   starts a **bugfix run**: derive the slug `fix-<n>-<few words>`, confirm it in one line, then `bash
+   $S/state.sh start <slug> --issue <ref>` (plus `--caused-by <slug>` when the issue names the run that
+   shipped the regression). It is a normal run through every stage and gate; stages-1-3.md and
+   stages-7-8.md say what differs. When it asks for a feature, it is a feature request (below) that
+   tracks the issue: `bash $S/state.sh start <slug> --issue <ref> --feature`, and its body and comments
+   are the request. Either way the issue carries the run's stage label from then on (`state.sh start`
+   and `stage` set it; GUIDE "Following a feature on its issue").
    Otherwise it is a **feature request**: derive a short kebab-case slug (≤ 40 chars), confirm it in one
    line, then `bash $S/state.sh start <slug>`. A refusal because another run is active means one run per
    checkout: tell the user to finish it, or start a parallel run with `claude --worktree`.

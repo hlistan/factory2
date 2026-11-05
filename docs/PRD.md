@@ -149,6 +149,11 @@ deploy). Deploy and rollback are not gates.
 - **Finding what waits.** Labels: `factory2` on every run's PR, `factory2:awaiting-approval` and
   `factory2:awaiting-<gate>` while a request waits, `factory2:approved-<gate>` while an approval holds.
   `gh pr list --label factory2:awaiting-approval` lists every run waiting for someone.
+- **Stage on the issue.** One `factory2:stage-<n>-<name>` label at a time, on the PR and on the GitHub
+  issue the run was started from (bugfix or `--feature`), set by `state.sh start` and `stage`, so
+  maintainers see each feature's progress in the issue list. The common practice is a small set of
+  exclusive workflow-state labels that a bot moves as work moves (in progress, in review; GitLab's
+  scoped labels make them exclusive), and that are only the tool's own: the issue's other labels stay.
 - **Only the person approves.** factory's comments carry a hidden marker
   (`<!-- factory2:<slug>:<kind> -->`) and are never read as the person's. `state.sh approve` refuses an
   approval without `--via-pr` on a PR run, and guard-bash blocks `gh pr comment`, `gh pr review`,

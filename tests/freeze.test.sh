@@ -108,7 +108,15 @@ t_has "$OUT" "freeze snapshot" "names the snapshot as the source"
 run bash "$S/state.sh" freeze;                           t_code 1 "re-freeze refuses a changed check file"
 git -C "$R" checkout -q -- .factory/config.yaml docs/specs/demo/plan.md
 printf 'test("x @AC-1"); test("y @AC-2")\n' > "$R/tests/a.test.ts"
+# The red check's results (a test run alone into its own report directory too) fail by design. Left in
+# reports/, contract-sync, which fails a test any report failed, kept failing it after the code passed.
+rep="$R/.factory/runs/demo/reports"; mkdir -p "$rep/e2e-alone-1"
+printf '<testsuite><testcase name="y @AC-2"><failure/></testcase></testsuite>\n' > "$rep/e2e-alone-1/junit.xml"
+printf '{"verdict":"approve"}\n' > "$rep/test-review-1.json"
 run bash "$S/state.sh" freeze;                           t_code 0 "re-freeze accepts reviewed test changes"
+t_eq "$(find "$rep" -name '*.xml' | wc -l | tr -d ' ')" "0" "a freeze moves the red runs' results out of reports/"
+t_eq "$(find "$R/.factory/runs/demo/red-reports" -path '*e2e-alone-1/junit.xml' | wc -l | tr -d ' ')" "1" "into red-reports/<time>/"
+t_eq "$(cat "$rep/test-review-1.json")" '{"verdict":"approve"}' "and leaves the review reports"
 run bash "$S/state.sh" verify-freeze;                    t_code 0 "and verifies afterwards"
 git -C "$R" add -A && git -C "$R" commit -q -m "tests reviewed"
 bash "$S/state.sh" freeze >/dev/null
@@ -144,4 +152,25 @@ t_has "$(cat "$R/.factory/runs/demo/stop-gate.log")" "timeout after 2s" "the tim
 t_eq "$(jq -r '.gate_timeouts' "$R/.factory/runs/demo/state.json")" "1" "and counted in state"
 sleep 1; [ ! -f "$R/hung.txt" ] && t_ok || t_fail "the hung check's process group survived the gate"
 mv "$snap.bak" "$snap"
+
+# --- the default branch merged in mid-run: what main changed was reviewed there, and isn't the run's change
+printf 'test("z @AC-3")\n' > "$R/tests/b.test.ts"
+git -C "$R" add -A && git -C "$R" commit -q -m "the run adds a test"
+bash "$S/state.sh" freeze >/dev/null
+git -C "$R" checkout -q -b upstream main~1 2>/dev/null || git -C "$R" checkout -q -b upstream HEAD~1
+printf 'export default { test: {} }\n' > "$R/vitest.config.ts"
+git -C "$R" rm -q tests/fixtures/user.json
+git -C "$R" commit -q -am "main changes a check file and moves a fixture"
+git -C "$R" update-ref refs/remotes/origin/main HEAD
+git -C "$R" checkout -q main && git -C "$R" merge -q --no-edit upstream
+run bash "$S/state.sh" verify-freeze;                    t_code 0 "a check file and a deletion taken from origin/main don't count as the run's changes"
+run bash "$S/state.sh" freeze;                           t_code 0 "and a re-freeze takes them as the new baseline"
+printf 'export default { test: { weaker: true } }\n' > "$R/vitest.config.ts"
+run bash "$S/state.sh" verify-freeze;                    t_code 1 "a check file that differs from main's still counts"
+t_has "$ERR$OUT" "vitest.config.ts" "and is named"
+git -C "$R" checkout -q -- vitest.config.ts
+rm "$R/tests/b.test.ts"
+run bash "$S/state.sh" verify-freeze;                    t_code 1 "deleting a test the run added (never on main) still counts"
+t_has "$ERR$OUT" "tests/b.test.ts" "and is named"
+git -C "$R" checkout -q -- tests/b.test.ts
 t_done

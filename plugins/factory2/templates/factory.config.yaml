@@ -81,6 +81,18 @@ review:
                             # and collaborators. Anyone else's comments are ignored and reported.
   poll_seconds: 60          # how often a waiting run checks the PR for comments
 
+issues:                     # the GitHub issue a run was started from (/factory2:run --issue <n>)
+  link_keyword: Fixes       # how the PR body names it: Fixes, Closes (closes it at the merge), or your
+                            # flow's own word, such as Implements
+  stage_labels: {}          # factory stage (1-8, and merged) -> the issue label that shows it. Empty: the
+                            # issue gets factory2 and factory2:stage-<n>-<name>. Set: it gets exactly the
+                            # mapped label, one at a time; the map's other labels are removed, so map onto
+                            # your own workflow labels, e.g. {4: "status:in-development", merged: "status:done"}.
+                            # A stage left out keeps the last mapped label. If an automation of yours also
+                            # sets them, leave this empty.
+  stage_label_prefix: ""    # with stage_labels: every issue label starting with this (e.g. "stage:") is one
+                            # of the set, so labels the map never sets are cleared too
+
 monitor:
   window_hours: 24
   scheduler: local-loop     # local-loop | launchd | github-actions
