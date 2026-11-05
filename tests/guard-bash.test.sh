@@ -77,6 +77,17 @@ g 'gh pr edit 7 --add-label factory2:approved-deploy'; t_code 2 "adding a factor
 g 'gh pr edit 7 --remove-label=factory2:awaiting-prd'; t_code 2 "removing a factory2 label"
 g 'gh pr edit 7 --add-label bug';           t_code 0 "other labels are fine"
 g 'gh api -X POST repos/o/r/issues/7/labels -f labels[]=x'; t_code 2 "labels through gh api"
+# the issues the run works on: the person approves and answers there
+printf '{"slug":"x","stage":2,"review_via":"pr","pr":7,"issue":"43","linked_issues":["44"]}' > "$R/.factory/runs/x/state.json"
+g 'gh issue comment 43 --body "/accept"';    t_code 2 "gh issue comment on the run's issue"
+t_has "$ERR" "pr.sh" "points to pr.sh"
+g 'gh issue comment "#44" -b hi';            t_code 2 "and on an issue it links"
+g 'gh issue comment https://github.com/o/r/issues/43 -b hi'; t_code 2 "by URL too"
+g 'gh api -X POST repos/o/r/issues/43/comments -f body=/accept'; t_code 2 "gh api comment on the run's issue"
+g 'gh api -X POST repos/o/r/issues/44/labels -f labels[]=factory2:approved-prd'; t_code 2 "labels on the run's issue through gh api"
+g 'gh issue edit 43 --add-label factory2:approved-prd'; t_code 2 "factory2 labels on the run's issue"
+g 'gh issue comment 12 --body "unrelated"';  t_code 0 "another issue is fine"
+g 'gh issue view 43 --json body';            t_code 0 "reading the issue is fine"
 rm -rf "$R/.factory/runs/x" "$R/.factory/runs/active"
 
 t_done

@@ -40,6 +40,23 @@
 #                                  names them, and the PR goes back to draft); 4 on timeout.
 #   pr.sh draft                    the change is in progress: puts the PR back in draft when it isn't.
 #                                  state.sh stage calls it when the run goes back before stage 7.
+#   pr.sh notify                   stdin: markdown that informs the person and needs no reply (a bugfix run
+#                                  started, the deploy); posted on the run's issues, else the PR.
+#   pr.sh ask                      stdin: a question for the person (an escalation: a round or budget limit,
+#                                  a conflict), with its options and an example reply. Posted where the
+#                                  person acts (the run's issues, else the PR); labels factory2:awaiting-input.
+#   pr.sh answer [--timeout <s>]   waits for the reply; saves it verbatim to feedback/question-<n>.md
+#                                  (committed and pushed). Prints {status: answered, file, authors}; exit 4 on timeout.
+# Everything that needs a person goes to the issues the run works on (the issue is what is built; the PR
+# is how), or to the PR when the run has no issue: approval requests, questions, and the replies to
+# them. Each says exactly what to reply, with examples. The PR keeps the planning trail (pr.sh publish).
+# Approval: a comment whose first line is issues.commands.approve (default /approve). With issues.flow
+# set, the plan (prd gate) is approved by the project's own issue flow instead: factory writes
+# docs/specs/<slug>/issue-plan.md into the issue's body, posts issues.flow.submit, and the gate passes
+# when the issue carries one of issues.flow.approved; until the issue carries one of
+# issues.flow.ready_for_plan, factory asks the owner to accept the idea (issues.flow.accept_idea) first.
+# A comment whose first line is another slash command (the issue flow's) is never a change request,
+# except issues.flow.changes.
 # Only people allowed by review.reviewers (default: the repository's owners, members and collaborators)
 # are read; other comments are reported as ignored. factory's own comments carry a marker,
 # <!-- factory2:<slug>:<kind> -->, and are never read as the person's.
@@ -93,6 +110,22 @@ push() { G push -q -u origin "$branch" 2>&1 >/dev/null | grep -v '^remote:' >&2;
 remote_head() { G ls-remote origin "refs/heads/$branch" 2>/dev/null | cut -f1; }
 marker() { printf '<!-- factory2:%s:%s -->' "$slug" "$1"; }
 link() { printf '[%s](%s/blob/%s/%s)' "$(basename "$2")" "$(repo_url)" "$1" "$2"; } # <ref> <path>
+gate_examples() { # <gate>: example change requests, naming the run's first criterion
+  local id; id="$(jq -r '.criteria[0].id // empty' "$root/$spec/contract.json" 2>/dev/null)"; [ -n "$id" ] || id=AC-1
+  case "$1" in
+    prd) printf '%s: an empty list says "Nothing to review" instead of showing an empty table.\nOut of scope: exporting the list as CSV.\n' "$id" ;;
+    evidence) printf '%s does not hold: after closing, the item is still in the list.\nThe button overlaps the title at phone width (the 390x844 screenshot).\n' "$id" ;;
+  esac
+}
+approve_cmd() { cfg '.issues.commands.approve' /approve; }
+flow_cfg() { cfg ".issues.flow.$1" "${2:-}"; }
+flow_labels() { factory_config_json | jq -r --arg k "$1" '.issues.flow[$k] // [] | if type == "array" then .[] else . end | strings'; }
+flow_on() { # the project's own issue flow approves the plan (issues.flow.approved), on the run's issue
+  [ -n "$(flow_labels approved)" ] && [ -n "$(issue_ref)" ]
+}
+fenced() { # stdin: lines, as an indented code block inside a list item
+  printf '  ```\n'; sed 's/^/  /'; printf '  ```\n'
+}
 commit_paths() { # <message> <path>...: commits just these paths when they changed
   local msg="$1"; shift
   G add -- "$@" || return 1
@@ -190,18 +223,46 @@ stage_what() {
     7) echo "merging and deploying" ;; 8) echo "shipped; production is monitored" ;;
   esac
 }
-issue_ref() { # the run's GitHub issue as gh takes it (a number or an issues URL); empty for a local incident file
-  local i; i="$(state_get '.issue // empty')"
-  case "$i" in
-    ''|*[!0-9#]*) case "$i" in https://*/issues/[0-9]*) echo "$i" ;; esac ;;
-    *) echo "${i#\#}" ;;
+issue_norm() { # <ref>: a GitHub issue as gh takes it (a number or an issues URL); empty for anything else
+  case "$1" in
+    ''|*[!0-9#]*) case "$1" in https://*/issues/[0-9]*) echo "$1" ;; esac ;;
+    *) echo "${1#\#}" ;;
   esac
+}
+issue_refs() { # every GitHub issue the run works on: .issue first, then .linked_issues (state.sh link-issue)
+  { state_get '.issue // empty'; state_get '.linked_issues // [] | .[]'; } | while IFS= read -r i; do issue_norm "$i"; done | awk 'NF && !seen[$0]++'
+}
+issue_ref() { issue_refs | head -n 1; }   # the run's own issue; empty for a local incident file
+issue_path() { # <ref>: the issue as an API path, repos/<owner>/<repo>/issues/<n>
+  case "$1" in
+    https://*) printf '%s' "$1" | sed -E 's#^https://[^/]+/([^/]+)/([^/]+)/issues/([0-9]+).*#repos/\1/\2/issues/\3#' ;;
+    *) printf 'repos/{owner}/{repo}/issues/%s' "$1" ;;
+  esac
+}
+issue_labels() { gh_ issue view "$1" --json labels --jq '.labels[].name' 2>/dev/null; }
+issue_has() { # <ref> <issues.flow key>: the issue carries one of that key's labels
+  local have l; have="$(issue_labels "$1")"
+  for l in $(flow_labels "$2"); do printf '%s\n' "$have" | grep -qxF -- "$l" && return 0; done
+  return 1
+}
+post_human() { # <file>: a request for a person goes to every issue the run works on (the PR is how, the
+  # issue is what), or to the PR when the run has no issue. Prints the first comment's URL.
+  local refs r u first=""
+  refs="$(issue_refs)"
+  if [ -z "$refs" ]; then post "$1"; return; fi
+  for r in $refs; do
+    u="$(gh_ issue comment "$r" --body-file "$1" | tail -n 1)" || { echo "factory: commenting on issue $r failed" >&2; continue; }
+    [ -n "$first" ] || first="$u"
+  done
+  [ -n "$first" ] || return 1
+  printf '%s\n' "$first"
 }
 
 label_spec() { # name<TAB>color<TAB>description for each label factory uses
   local e
   printf 'factory2\t5319e7\ta factory2 run\n'
-  printf 'factory2:awaiting-approval\tfbca04\tfactory2 waits for your /approve\n'
+  printf 'factory2:awaiting-approval\tfbca04\tfactory2 waits for your approval\n'
+  printf 'factory2:awaiting-input\tfbca04\tfactory2 waits for your answer to a question\n'
   for g in $GATES; do
     printf 'factory2:awaiting-%s\tfbca04\tfactory2 waits for your /approve: %s\n' "$g" "$(gate_what "$g")"
     printf 'factory2:approved-%s\t0e8a16\tapproved: %s\n' "$g" "$(gate_what "$g")"
@@ -251,16 +312,83 @@ labels() {
   own="$(factory_config_json | jq -r --arg k "$key" '.issues.stage_labels // {} | .[$k] // empty')"
   run_labels="$(state_get '.' | jq -r --arg st "$stage" '"factory2", $st,
     (if .approval_request then "factory2:awaiting-approval", "factory2:awaiting-\(.approval_request.gate)" else empty end),
+    (if .question then "factory2:awaiting-input" else empty end),
     (.approvals // {} | keys[] | "factory2:approved-\(.)")')"
   [ -n "$pr" ] && sync_labels pr "$pr" "$run_labels"
   # with issues.stage_labels the issue carries only the project's label; a stage the map leaves out keeps
   # the label of the last mapped one
-  if [ -n "$issue" ] && [ -n "$mapped" ]; then
-    [ -z "$own" ] || sync_labels issue "$issue" "$own" "$mapped" "$(cfg '.issues.stage_label_prefix')"
-  elif [ -n "$issue" ]; then sync_labels issue "$issue" "$run_labels"; fi
+  local i
+  for i in $(issue_refs); do
+    if [ -n "$mapped" ]; then
+      [ -z "$own" ] || sync_labels issue "$i" "$own" "$mapped" "$(cfg '.issues.stage_label_prefix')"
+    else sync_labels issue "$i" "$run_labels"; fi
+  done
   return 0
 }
 
+flow_request() { # <sha>: the plan goes to the project's own issue flow: written into the issue and
+  # submitted when the issue takes a plan (issues.flow.ready_for_plan), else the owner is asked to accept
+  # the idea first; wait/feedback submits it once they have
+  local i c u h7; i="$(issue_ref)"; h7="$(printf %s "$1" | cut -c1-12)"
+  if issue_has "$i" ready_for_plan; then
+    u="$(flow_submit "$1")"
+    state_update '.approval_request = {gate: "prd", sha: $s, url: $u, at: $at, flow: "submitted"}' --arg s "$1" --arg u "$u" --arg at "$(now_utc)"
+    return
+  fi
+  c="$run/.issue-comment.md"
+  {
+    marker "approval-request:prd:$1"; echo
+    printf '### ⏳ factory2 needs you to accept this idea first\n\n'
+    printf 'The plan for this issue is ready (run `%s`, commit `%s`%s). This project'"'"'s issue flow takes a plan once the idea is accepted: the issue is labelled %s.\n\n' \
+      "$slug" "$h7" "$(state_get '.pr_url // empty' | sed 's/^./, pull request &/')" "$(flow_labels ready_for_plan | sed 's/.*/`&`/' | paste -sd, - | sed 's/,/ or /g')"
+    printf '#### What to do\n\n'
+    printf -- '- **Accept the idea**: a comment whose first line is\n\n'
+    printf '%s\n' "$(flow_cfg accept_idea /approve)" | fenced
+    printf '\n  factory then writes the plan into this issue and submits it for your review.\n\n'
+    printf -- '- **Decline it**: as this project'"'"'s issue flow says; then stop the run in its Claude Code session.\n'
+  } > "$c"
+  u="$(gh_ issue comment "$i" --body-file "$c" | tail -n 1)" || die "commenting on issue $i failed"
+  state_update '.approval_request = {gate: "prd", sha: $s, url: $u, at: $at, flow: "idea"}' --arg s "$1" --arg u "$u" --arg at "$(now_utc)"
+}
+flow_submit() { # <sha>: writes docs/specs/<slug>/issue-plan.md into the issue's body and submits it; prints the comment URL
+  local i f c sub h7; i="$(issue_ref)"; f="$root/$spec/issue-plan.md"; h7="$(printf %s "$1" | cut -c1-12)"
+  [ -s "$f" ] || die "$spec/issue-plan.md is missing: with issues.flow the planner writes the issue's body in the project's format"
+  gh_ issue edit "$i" --body-file "$f" >/dev/null || die "writing the plan into issue $i failed"
+  sub="$(flow_cfg submit)"; c="$run/.issue-comment.md"
+  {
+    [ -n "$sub" ] && printf '%s\n\n' "$sub"
+    marker "approval-request:prd:$1"; echo
+    printf '### ⏳ factory2 needs your review of the plan\n\n'
+    printf 'The plan is now this issue'"'"'s body (run `%s`, commit `%s`%s)%s. It is what will be built; how is on the pull request.\n\n' \
+      "$slug" "$h7" "$(state_get '.pr_url // empty' | sed 's/^./, pull request &/')" "${sub:+, submitted with \`$sub\`}"
+    printf '#### What to do\n\n'
+    printf -- '- **Approve the plan**: a comment whose first line is\n\n'
+    printf '%s\n' "$(flow_cfg approve /approve)" | fenced
+    printf '\n- **Ask for changes**: a comment like\n\n'
+    { printf '%s ' "$(flow_cfg changes | awk '{print $1}')"; gate_examples prd; } | sed 's/^ //' | fenced
+    printf '\n  factory revises the plan and submits it again.\n\n'
+    printf 'factory continues once the issue is labelled %s.\n' "$(flow_labels approved | head -n 1 | sed 's/.*/`&`/')"
+  } > "$c"
+  gh_ issue comment "$i" --body-file "$c" | tail -n 1 || die "commenting on issue $i failed"
+}
+all_comments() { # every comment a person could have left: on the PR (comments, inline, reviews) and on each
+  # issue the run works on, as one JSON array
+  local pr ic rc rv iss="[]" r x
+  pr="$(pr_num)"
+  fetch() { gh_ api --paginate "$1" 2>/dev/null | jq -s 'map(if type == "array" then . else [] end) | add // []'; }
+  ic="$(fetch "repos/{owner}/{repo}/issues/$pr/comments")" && rc="$(fetch "repos/{owner}/{repo}/pulls/$pr/comments")" \
+    && rv="$(fetch "repos/{owner}/{repo}/pulls/$pr/reviews")" || return 1
+  for r in $(issue_refs); do
+    x="$(fetch "$(issue_path "$r")/comments")" || return 1
+    iss="$(jq -n --argjson a "$iss" --argjson b "$x" '$a + $b')"
+  done
+  jq -n --argjson ic "$ic" --argjson rc "$rc" --argjson rv "$rv" --argjson iss "$iss" '
+    def mk($k): {key: ($k + "-" + (.id | tostring)), kind: $k, id, author: (.user.login // ""),
+      assoc: (.author_association // "NONE"), body: (.body // ""), url: (.html_url // ""),
+      at: (.submitted_at // .created_at // ""), path: (.path // null), line: (.line // .original_line // null), state: (.state // null)};
+    [$ic[] | mk("comment")] + [$iss[] | mk("issue")] + [$rc[] | mk("inline")]
+      + [$rv[] | select(.state != "PENDING") | mk("review") | select(.body != "" or .state == "APPROVED")]'
+}
 artifact_what() {
   case "$1" in
     request.md) echo "the request as given" ;;
@@ -274,23 +402,24 @@ body() {
   local f n pr url head kind issue fixes ff any r rf pf kw
   need_pr
   url="$(repo_url)"; n="$(round)"; f="$run/.pr-body.md"
-  kind="$(state_get '.kind // "feature"')"; issue="$(state_get '.issue // empty')"; fixes=""
+  kind="$(state_get '.kind // "feature"')"; fixes=""
   kw="$(cfg '.issues.link_keyword' Fixes)"
-  case "$issue" in
-    ''|*[!0-9]*) case "$issue" in https://*/issues/[0-9]*) fixes="$kw $issue" ;; esac ;;
-    *) fixes="$kw #$issue" ;;
-  esac
+  for i in $(issue_refs); do
+    case "$i" in https://*) fixes="$fixes$kw $i"$'\n' ;; *) fixes="$fixes$kw #$i"$'\n' ;; esac
+  done
+  where="the pull request"; [ -n "$(issue_ref)" ] && where="the issue ($(issue_refs | sed 's/^[0-9]/#&/' | paste -sd, - | sed 's/,/, /g'))"
   {
     marker body; echo
     printf '## factory2 run `%s` (%s)\n\n' "$slug" "$kind"
-    [ -n "$fixes" ] && printf '%s\n\n' "$fixes"
-    printf 'This draft PR follows the run from its first commit. factory comments on every planning step with what was added or changed.\n\n'
+    [ -n "$fixes" ] && printf '%s\n' "$fixes"
+    printf 'This PR is how the change is built: a draft while it is in progress, ready for review once it can merge. factory comments here on every planning step. **Anything that needs you is asked on %s**, with the exact reply to give.\n\n' "$where"
     printf '| Artifact | |\n|---|---|\n'
     for a in request.md prd.md plan.md contract.json; do
       [ -f "$root/$spec/$a" ] && printf '| %s | %s |\n' "$(link "$branch" "$spec/$a")" "$(artifact_what "$a")"
     done
     printf '\n**Stage** %s (%s) · **PRD round** %s\n\n' "$(state_get .stage)" "$(state_get .phase)" "$n"
-    state_get '.approval_request // {}' | jq -r 'select(.gate) | "⏳ **Waiting for your approval: \(.gate)** at `\(.sha[0:12])`: reply `/approve` to [the request](\(.url)).\n"' 
+    state_get '.approval_request // {}' | jq -r 'select(.gate) | "⏳ **Waiting for your approval: \(.gate)** at `\(.sha[0:12])`: see [the request](\(.url)) for what to reply.\n"'
+    state_get '.question // {}' | jq -r 'select(.n) | "❓ **Waiting for your answer** to [a question](\(.url)).\n"' 
     state_get '.approvals // {}' | jq -r 'to_entries[] | "- ✅ **\(.key)** approved at `\(.value.sha[0:12])`" + (if .value.by then " by @\(.value.by) ([comment](\(.value.url)))" else "" end)'
     printf '\n### Review ledger\n\n'
     local any=0 r rf pf
@@ -311,13 +440,14 @@ body() {
       printf '\n### Your corrections\n\n'
       for ff in "$root/$spec/feedback"/*.md; do printf -- '- %s\n' "$(link "$branch" "$spec/feedback/$(basename "$ff")")"; done
     fi
-    printf '\n### How to steer\n\n- **Correct**: comment on this PR, here or inline on the files. Every comment from a reviewer goes to the planner word for word.\n'
-    printf -- '- **Approve**: when factory asks for approval, reply with a comment whose first line is `/approve`. factory asks twice, both here: for the plan (what will be built and how) before any code, and for the evidence before merge. Deploy and rollback follow without another approval.\n'
-    # the run's labels are on its issue when it has one; with issues.labels: false there are none
+    printf '\n### How to steer\n\n'
+    printf -- '- **Correct**: comment on %s, or here on this PR (inline on the files too). Every comment goes to the run word for word.\n' "$where"
+    printf -- '- **Approve**: factory asks on %s twice: for the plan (what will be built) before any code, and for the evidence (what was built) before merge. Each request says exactly what to reply. Deploy and rollback follow without another approval.\n' "$where"
+    # the run's labels are on its issues when it has one; with issues.labels: false there are none
     if [ -z "$(issue_ref)" ]; then
-      printf -- '- **Find waiting requests**: the `factory2:awaiting-approval` label (`factory2:awaiting-prd` for the plan, `factory2:awaiting-evidence`); approvals held carry `factory2:approved-<gate>`.\n'
+      printf -- '- **Find waiting requests**: the `factory2:awaiting-approval` and `factory2:awaiting-input` labels on this PR; approvals held carry `factory2:approved-<gate>`.\n'
     elif [ "$(cfg '.issues.labels' true)" != false ] && [ "$(factory_config_json | jq '.issues.stage_labels // {} | length')" = 0 ]; then
-      printf -- '- **Find waiting requests**: the issue carries this run'"'"'s labels: `factory2:awaiting-approval` (`factory2:awaiting-prd` for the plan, `factory2:awaiting-evidence`); approvals held carry `factory2:approved-<gate>`. This PR carries none.\n'
+      printf -- '- **Find waiting requests**: the labels are on the issue: `factory2:awaiting-approval` (with `factory2:awaiting-prd` or `factory2:awaiting-evidence`) and `factory2:awaiting-input` for a question. This PR carries none: it is a draft while in progress.\n'
     fi
   } > "$f"
   gh_ pr edit "$(pr_num)" --body-file "$f" >/dev/null || die "gh pr edit failed"
@@ -418,26 +548,41 @@ case "$cmd" in
     push
     sha="$(G rev-parse HEAD)"
     h7="$(printf %s "$sha" | cut -c1-12)"
+    if [ "$gate" = prd ] && flow_on; then   # the project's own issue flow approves the plan
+      flow_request "$sha"
+      body
+      echo "factory: approval of prd at $h7 requested through the issue's flow: $(state_get '.approval_request.url')"
+      exit 0
+    fi
+    ac="$(approve_cmd)"; pr_url="$(state_get '.pr_url // empty')"
     c="$run/.pr-comment.md"
     {
       marker "approval-request:$gate:$sha"; echo
-      printf '### ⏳ Approval requested: %s at `%s`\n\n' "$(gate_what "$gate")" "$h7"
+      printf '### ⏳ factory2 needs your approval: %s\n\n' "$(gate_what "$gate")"
+      printf 'Run `%s`%s, commit `%s`.\n\n' "$slug" "${pr_url:+, pull request $pr_url}" "$h7"
       if [ "$gate" = prd ]; then
-        printf 'Before any code is written: this is what factory will build and how. Approve it, or comment what to change.\n\n'
+        printf 'Before any code is written: this is what factory will build and how.\n\n'
         plan_md "$sha"; echo
       fi
       [ -n "$details" ] && printf '%s\n\n' "$details"
       [ "$gate" = evidence ] && printf '**This is the last approval:** once given, factory merges, deploys and runs the smoke test without asking again, and rolls back on its own if the smoke test fails.\n\n'
-      printf -- '- **To approve**, reply with a comment whose first line is `/approve`. Anything after that line is saved as notes for the run.\n'
-      printf -- '- **Otherwise**, comment here (or inline on the files). %s\n' "$(gate_correct "$gate")"
-      printf -- '- The approval holds for `%s` only: a later push asks again. If comments arrive together with `/approve`, the comments win and the approval is ignored.\n' "$h7"
       if [ "$gate" = prd ]; then
         lr="$(latest_review)"; blocking=""
         [ -n "$lr" ] && blocking="$(jq -r '.findings // [] | .[] | select(.severity == "blocking") | "- **\(.id)**: \(.problem)"' "$lr")"
-        [ -n "$blocking" ] && printf '\n**⚠️ The reviewer still has blocking findings.** `/approve` overrides them, and the override is recorded:\n\n%s\n' "$blocking"
+        [ -n "$blocking" ] && printf '**⚠️ The reviewer still has blocking findings.** Approving overrides them, and the override is recorded:\n\n%s\n\n' "$blocking"
       fi
+      printf '#### What to do\n\nReply %s with one of:\n\n' "$([ -n "$(issue_ref)" ] && echo "on this issue" || echo "on this pull request")"
+      printf -- '- **Approve**: a comment whose first line is exactly\n\n'
+      printf '%s\n' "$ac" | fenced
+      printf '\n  Lines after it are kept as notes for the run, for example:\n\n'
+      printf '%s\nKeep the reason field optional.\n' "$ac" | fenced
+      printf '\n- **Ask for changes**: write each change on its own line, naming the criterion it concerns, for example:\n\n'
+      gate_examples "$gate" | fenced
+      printf '\n  %s\n\n' "$(gate_correct "$gate")"
+      printf -- '- **Stop the run**: say so in the Claude Code session running it.\n\n'
+      printf 'The approval holds for `%s` only: a later push asks again. If change requests arrive together with `%s`, the changes win and factory asks again.\n' "$h7" "$ac"
     } > "$c"
-    u="$(post "$c")" || die "gh pr comment failed"
+    u="$(post_human "$c")" || die "posting the approval request failed"
     state_update '.approval_request = {gate: $g, sha: $s, url: $u, at: $at}' --arg g "$gate" --arg s "$sha" --arg u "$u" --arg at "$(now_utc)"
     body
     echo "factory: approval of $gate at $h7 requested: $u"
@@ -457,39 +602,55 @@ case "$cmd" in
     reviewers="$(factory_config_json | jq -c '.review.reviewers // [] | if type == "array" then map(tostring) else [] end')"
     started="$(date +%s)"
     while :; do
-      pr="$(pr_num)"
-      fetch() { gh_ api --paginate "repos/{owner}/{repo}/$1" 2>/dev/null | jq -s 'map(if type == "array" then . else [] end) | add // []'; }
-      ic="$(fetch "issues/$pr/comments")" && rc="$(fetch "pulls/$pr/comments")" && rv="$(fetch "pulls/$pr/reviews")" || die "reading the PR's comments failed (gh api)"
+      flow=""; flow_ok=false; refused=false
+      if [ "$gate" = prd ] && flow_on; then
+        flow="$(state_get '.approval_request.flow // empty')"
+        if [ "$flow" = idea ] && issue_has "$(issue_ref)" ready_for_plan; then   # the owner accepted the idea
+          u="$(flow_submit "$(state_get '.approval_request.sha')")"
+          state_update '.approval_request.url = $u | .approval_request.at = $at | .approval_request.flow = "submitted"' --arg u "$u" --arg at "$(now_utc)"
+          flow=submitted
+        fi
+        [ "$flow" = submitted ] && issue_has "$(issue_ref)" approved && flow_ok=true
+        # still taking a plan after the submit: the flow refused it, and its bot said why
+        [ "$flow" = submitted ] && [ "$flow_ok" = false ] && issue_has "$(issue_ref)" ready_for_plan && refused=true
+      fi
+      all="$(all_comments)" || die "reading the comments failed (gh api)"
       head_remote="$(remote_head)"; head_local="$(G rev-parse HEAD)"
-      result="$(jq -n --argjson ic "$ic" --argjson rc "$rc" --argjson rv "$rv" --argjson seen "$(state_get '.pr_seen // []')" \
-        --argjson reviewers "$reviewers" --arg slug "$slug" --arg gate "$gate" --arg hr "$head_remote" --arg hl "$head_local" --argjson bind "$bind" '
-        def mk($k): {key: ($k + "-" + (.id | tostring)), kind: $k, id, author: (.user.login // ""),
-          assoc: (.author_association // "NONE"), body: (.body // ""), url: (.html_url // ""),
-          at: (.submitted_at // .created_at // ""), path: (.path // null), line: (.line // .original_line // null), state: (.state // null)};
-        ([$ic[] | mk("comment")] + [$rc[] | mk("inline")]
-          + [$rv[] | select(.state != "PENDING") | mk("review") | select(.body != "" or .state == "APPROVED")]) as $all
-        | ($all | map(select(.body | contains("<!-- factory2:")))) as $ours
-        | ([$ours[] | select(.kind == "comment") | . as $c
+      result="$(jq -n --argjson all "$all" --argjson seen "$(state_get '.pr_seen // []')" \
+        --argjson reviewers "$reviewers" --arg slug "$slug" --arg gate "$gate" --arg hr "$head_remote" --arg hl "$head_local" --argjson bind "$bind" \
+        --arg ac "$(approve_cmd)" --arg flow "$flow" --argjson flow_ok "$flow_ok" --arg fa "$(flow_cfg approve /approve)" \
+        --arg fc "$(flow_cfg changes | awk '{print $1}')" --argjson refused "$refused" --arg iurl "$(gh_ issue view "$(issue_ref)" --json url --jq .url 2>/dev/null)" '
+        def first: (.body | split("\n")[0] | gsub("^\\s+|\\s+$"; ""));
+        def cmdword: (first | split(" ")[0] | ascii_downcase);
+        ($all | map(select(.body | contains("<!-- factory2:")))) as $ours
+        | ([$ours[] | select(.kind == "comment" or .kind == "issue")
             | (.body | capture("<!-- factory2:" + $slug + ":approval-request:" + $gate + ":(?<sha>[0-9a-f]{7,64}) -->")? // null) as $m
-            | select($m) | {id, at, url, sha: $m.sha}] | max_by(.id)) as $req
+            | select($m) | {id, at, url, sha: $m.sha}] | max_by(.at)) as $req
         | [$all[] | select((.body | contains("<!-- factory2:")) | not) | select(.key as $k | $seen | index($k) | not)] as $fresh
         | [$fresh[] | select(.author | endswith("[bot]") | not)
             | select(if ($reviewers | length) > 0 then (.author as $a | $reviewers | index($a)) else (.assoc | IN("OWNER", "MEMBER", "COLLABORATOR")) end)] as $new
         | [$fresh[] | select(.key as $k | $new | map(.key) | index($k) | not)] as $ignored
-        | def isapprove: .kind != "inline" and ((.body | test("^\\s*/approve(\\s|$)"; "i")) or (.kind == "review" and .state == "APPROVED"));
-          [$new[] | select(isapprove)] as $ap
-        | [$new[] | select(isapprove | not)] as $corr
+        | def isapprove: if $flow != "" then false
+            else .kind != "inline" and ((cmdword == ($ac | ascii_downcase)) or (.kind == "review" and .state == "APPROVED")) end;
+          # a command for another automation (the issue flow'"'"'s /approve, /verified, ...) is not a change request;
+          # the flow'"'"'s changes command is
+          def othercmd: (first | startswith("/")) and (isapprove | not) and (($fc == "") or (cmdword != ($fc | ascii_downcase)));
+          [$new[] | select(isapprove)] as $ap0
+        | (if $flow_ok then [([$new[] | select(cmdword == ($fa | ascii_downcase))] | max_by(.at))
+              // {author: "the issue flow", url: $iurl, at: "", body: "", id: 0}] else $ap0 end) as $ap
+        | ([$new[] | select(isapprove | not) | select(othercmd | not)]
+          + (if $refused and $req != null then [$fresh[] | select(.kind == "issue" and (.author | endswith("[bot]")) and .at > $req.at)] else [] end)) as $corr
         | (if ($ap | length) == 0 then null
-           elif $req == null then "there is no approval request on the PR yet"
-           elif ($ap | all(.at > $req.at) | not) then "the /approve came before the approval request"
+           elif $req == null then "there is no approval request yet"
+           elif ($flow_ok | not) and ($ap | all(.at > $req.at) | not) then "the approval came before the approval request"
            elif $bind and $req.sha != $hr then "the approval request is for \($req.sha[0:12]) but the PR head is \($hr[0:12])"
            elif $bind and $hr != $hl then "the PR head \($hr[0:12]) is not this checkout'"'"'s HEAD \($hl[0:12])"
            else "" end) as $why
         | {status: (if ($corr | length) > 0 then "changes" elif ($ap | length) > 0 and $why == "" then "approved" else "none" end),
            corrections: $corr, approvals: $ap, ignored: [$ignored[] | {author, url}],
            approval_invalid: (if ($ap | length) > 0 and ($corr | length) == 0 and $why != "" then $why else null end),
-           approval_ignored: (if ($ap | length) > 0 and ($corr | length) > 0 then "corrections arrived with the approval" else null end),
-           request: $req, keys: [$fresh[] | .key]}')" || die "couldn't parse the PR's comments"
+           approval_ignored: (if ($ap | length) > 0 and ($corr | length) > 0 then "change requests arrived with the approval" else null end),
+           request: $req, keys: [$fresh[] | .key]}')" || die "couldn't parse the comments"
       status="$(printf '%s' "$result" | jq -r .status)"
       n="$(gate_round "$gate")"; fb="$spec/feedback/$gate-$n.md"
       # everything read is marked seen, so a comment is never applied twice
@@ -497,21 +658,21 @@ case "$cmd" in
       inv="$(printf '%s' "$result" | jq -r '.approval_invalid // empty')"
       if [ -n "$inv" ]; then
         c="$run/.pr-comment.md"
-        { marker "note:$n"; echo; printf 'The approval was not recorded: %s. Please `/approve` the latest approval request.\n' "$inv"; } > "$c"
-        post "$c" >/dev/null || true
+        { marker "note:$n"; echo; printf 'The approval was not recorded: %s. Reply `%s` to the latest approval request: %s\n' "$inv" "$(approve_cmd)" "$(state_get '.approval_request.url // empty')"; } > "$c"
+        post_human "$c" >/dev/null || true
       fi
       if [ "$status" = changes ] || [ "$status" = approved ]; then
         mkdir -p "$root/$spec/feedback"
         {
           [ -s "$root/$fb" ] && echo
-          printf '## From the PR, %s\n' "$(now_utc)"
+          printf '## From GitHub, %s\n' "$(now_utc)"
           printf '%s' "$result" | jq -r '
             (.corrections[] | "\n### @\(.author) · \(if .path then "`\(.path)`" + (if .line then ":\(.line)" else "" end) else .kind end) · \(.at)\n\(.url)\n\n\(.body)"),
-            (if .status == "approved" then (.approvals[] | (.body | sub("^\\s*/approve[^\n]*\n?"; "")) as $notes
+            (if .status == "approved" then (.approvals[] | (.body | sub("^\\s*/[^\n]*\n?"; "")) as $notes
               | select($notes | test("\\S")) | "\n### Approval notes from @\(.author) · \(.at)\n\(.url)\n\n\($notes)") else empty end)'
         } >> "$root/$fb"
         before="$(G rev-parse HEAD)"
-        commit_paths "factory($slug): $gate feedback $n from the PR" "$fb"
+        commit_paths "factory($slug): $gate feedback $n from GitHub" "$fb"
         if [ "$(G rev-parse HEAD)" != "$before" ]; then
           push
           state_update '.pr_published = $h' --arg h "$(G rev-parse HEAD)"
@@ -525,8 +686,9 @@ case "$cmd" in
         [ -n "$lr" ] && open_blocking="$(jq -c '[.findings // [] | .[] | select(.severity == "blocking") | .id]' "$lr")"
         result="$(printf '%s' "$result" | jq --argjson b "$open_blocking" '.override = (($b | length) > 0) | .open_blocking = $b')"
         c="$run/.pr-comment.md"
-        { marker "approved:$gate:$sha"; echo; printf '✅ **Approved: %s** at `%s` by @%s. %s\n' "$(gate_what "$gate")" "$(printf %s "$sha" | cut -c1-12)" "$(printf '%s' "$a" | jq -r .author)" "$(gate_next "$gate")"; } > "$c"
-        post "$c" >/dev/null || true
+        who="$(printf '%s' "$a" | jq -r .author)"; case "$who" in *' '*) ;; *) who="@$who" ;; esac
+        { marker "approved:$gate:$sha"; echo; printf '✅ **Approved: %s** at `%s` by %s. %s\n' "$(gate_what "$gate")" "$(printf %s "$sha" | cut -c1-12)" "$who" "$(gate_next "$gate")"; } > "$c"
+        post_human "$c" >/dev/null || true
         state_update 'del(.approval_request)'
         body
       elif [ "$status" = changes ]; then
@@ -534,9 +696,10 @@ case "$cmd" in
         { marker "received:$gate:$n"; echo
           printf 'Received %s comment(s) at the %s gate, saved word for word (%s).\n\n' "$(printf '%s' "$result" | jq '.corrections | length')" "$gate" "$(link "$(G rev-parse HEAD)" "$fb")"
           printf '%s' "$result" | jq -r '.corrections[] | "- [@\(.author)](\(.url))"'
-          [ -n "$(printf '%s' "$result" | jq -r '.approval_ignored // empty')" ] && printf '\nThe `/approve` in the same batch was ignored: factory asks again after this round.\n'
+          [ -n "$(printf '%s' "$result" | jq -r '.approval_ignored // empty')" ] && printf '\nThe approval in the same batch was ignored: factory asks again after this round.\n'
+          printf '\nNothing is needed from you until factory asks again.\n'
         } > "$c"
-        post "$c" >/dev/null || true
+        post_human "$c" >/dev/null || true
         # the request is answered: a new one follows the next round
         state_update 'if .approval_request.gate == $g then del(.approval_request) else . end' --arg g "$gate"
         body
@@ -550,6 +713,62 @@ case "$cmd" in
     done
     ;;
 
+  notify)   # stdin: markdown for the person, nothing to reply: on the run's issues (else the PR)
+    need_pr
+    m="$(cat)"; [ -n "$m" ] || die "notify: the message comes on stdin"
+    c="$run/.pr-comment.md"; { marker "notice:$(date +%s)"; echo; printf '%s\n' "$m"; } > "$c"
+    u="$(post_human "$c")" || die "posting the notice failed"
+    echo "factory: notified: $u"
+    ;;
+  ask)
+    need_pr
+    q="$(cat)"; [ -n "$q" ] || die "ask: the question comes on stdin, with its options and an example reply"
+    n=$(( $(state_get '.questions // 0') + 1 )); pr_url="$(state_get '.pr_url // empty')"
+    c="$run/.pr-comment.md"
+    {
+      marker "question:$n"; echo
+      printf '### ❓ factory2 needs a decision\n\n'
+      printf 'Run `%s`%s.\n\n%s\n\n' "$slug" "${pr_url:+, pull request $pr_url}" "$q"
+      printf '#### What to do\n\nReply %s with your answer. The whole comment goes to the run word for word, and the run waits for it.\n' \
+        "$([ -n "$(issue_ref)" ] && echo "on this issue" || echo "on this pull request")"
+    } > "$c"
+    u="$(post_human "$c")" || die "posting the question failed"
+    state_update '.questions = $n | .question = {n: $n, url: $u, at: $at}' --argjson n "$n" --arg u "$u" --arg at "$(now_utc)"
+    labels
+    echo "factory: question $n asked: $u"
+    ;;
+  answer)
+    need_pr
+    [ -n "$(state_get '.question // empty')" ] || die "no question is waiting (pr.sh ask)"
+    timeout=0
+    while [ $# -gt 0 ]; do
+      case "$1" in --timeout) timeout="${2:-0}"; shift 2 || { echo "factory: $1 needs a value" >&2; exit 2; } ;; *) echo "factory: answer [--timeout <s>]" >&2; exit 2 ;; esac
+    done
+    poll="$(cfg '.review.poll_seconds' 60)"; case "$poll" in ''|*[!0-9]*) poll=60 ;; esac
+    reviewers="$(factory_config_json | jq -c '.review.reviewers // [] | if type == "array" then map(tostring) else [] end')"
+    started="$(date +%s)"; n="$(state_get '.question.n')"; qat="$(state_get '.question.at')"
+    while :; do
+      all="$(all_comments)" || die "reading the comments failed (gh api)"
+      ans="$(jq -n --argjson all "$all" --argjson seen "$(state_get '.pr_seen // []')" --argjson reviewers "$reviewers" --arg qat "$qat" '
+        [$all[] | select((.body | contains("<!-- factory2:")) | not) | select(.key as $k | $seen | index($k) | not)
+          | select(.at >= $qat) | select(.author | endswith("[bot]") | not)
+          | select(if ($reviewers | length) > 0 then (.author as $a | $reviewers | index($a)) else (.assoc | IN("OWNER", "MEMBER", "COLLABORATOR")) end)]')"
+      if [ "$(printf '%s' "$ans" | jq length)" -gt 0 ]; then
+        fb="$spec/feedback/question-$n.md"; mkdir -p "$root/$spec/feedback"
+        printf '%s' "$ans" | jq -r '.[] | "## @\(.author) · \(.at)\n\(.url)\n\n\(.body)\n"' > "$root/$fb"
+        commit_paths "factory($slug): answer to question $n" "$fb"; push
+        state_update '.pr_seen = ((.pr_seen // []) + $k | unique) | del(.question)' --argjson k "$(printf '%s' "$ans" | jq -c 'map(.key)')"
+        c="$run/.pr-comment.md"
+        { marker "answered:$n"; echo; printf 'Thanks: the answer is saved word for word (%s) and the run continues. Nothing else is needed from you now.\n' "$(link "$(G rev-parse HEAD)" "$fb")"; } > "$c"
+        post_human "$c" >/dev/null || true
+        labels
+        jq -cn --arg f "$fb" --argjson a "$ans" '{status: "answered", file: $f, authors: [$a[] | .author] | unique}'
+        exit 0
+      fi
+      if [ "$timeout" -gt 0 ] && [ $(( $(date +%s) - started + poll )) -gt "$timeout" ]; then echo '{"status":"none"}'; exit 4; fi
+      sleep "$poll"
+    done
+    ;;
   body) body ;;
   labels) labels ;;
   draft)

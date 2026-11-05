@@ -17,6 +17,8 @@
 #   state.sh stage <n>               enter stage n (prices the main session's usage so far first); going
 #                                    back revokes the approvals of gates at stage n or later. The stage
 #                                    label on the run's PR and GitHub issue follows (pr.sh labels).
+#   state.sh link-issue <ref>        another GitHub issue this run works on (the PR names it too): it gets the
+#                                    run's labels and every request for a person, like the run's own issue
 #   state.sh phase <name>            plan|prd-review|tests|code|docs|review|evidence|ship|monitor
 #   state.sh round <name>            increment a round counter (prd, impl, review, evidence) and print it
 #   state.sh approve <gate> [sha] [--via-pr <url> --by <login>]
@@ -207,6 +209,12 @@ case "$cmd" in
   end) rm -f "$runs/active"; echo "factory: checkout released" ;;
   active) s="$(factory_active_slug)"; [ -n "$s" ] && echo "$s" || exit 1 ;;
   get) need_active; state_get "${1:-.}" ;;
+  link-issue)
+    need_active; i="${1:-}"
+    case "$i" in [0-9]*|'#'[0-9]*|https://*/issues/[0-9]*) ;; *) echo "factory: link-issue <number|#n|issue URL>" >&2; exit 2 ;; esac
+    state_update '.linked_issues = ((.linked_issues // []) + [$i] | unique)' --arg i "${i#\#}"
+    refresh_labels
+    ;;
   set) need_active; [ $# -ge 1 ] || exit 2; state_update "$@" ;;
   stage)
     need_active; n="${1:-}"; case "$n" in [1-8]) ;; *) echo "factory: stage is 1-8" >&2; exit 2 ;; esac
@@ -243,7 +251,7 @@ case "$cmd" in
     sha="${sha:-$(git -C "$root" rev-parse HEAD)}"
     # a run tracked on a PR takes every approval only from the person's /approve there (pr.sh feedback)
     if [ "$(state_get '.review_via // empty')" = pr ] && [ -z "$via" ]; then
-      echo "factory: this run's approvals are given on its PR: the person replies /approve to the approval request (pr.sh request-approval $gate, then pr.sh wait $gate)" >&2; exit 1
+      echo "factory: this run's approvals are given on GitHub, on its issue (or its PR without one): the person replies to the approval request as it says (pr.sh request-approval $gate, then pr.sh wait $gate)" >&2; exit 1
     fi
     state_update '.approvals[$g] = ({sha: $s, at: $at} + (if $u == "" then {} else {url: $u, by: $b} end))' \
       --arg g "$gate" --arg s "$sha" --arg at "$(now_utc)" --arg u "$via" --arg b "$by"

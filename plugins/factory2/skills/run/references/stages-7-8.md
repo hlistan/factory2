@@ -45,7 +45,8 @@ is gone and only git-ignored state changes.
 9. Success: `bash $S/ship.sh mark` records the deploy commit, time and monitoring baseline (which
    `monitor.checks` pass right now; a check already failing isn't an anomaly while it keeps failing).
 10. **Bugfix run**: close the issue. The PR says `Fixes #<n>` (stage 4d), so the merge closes a GitHub
-    issue; comment the deploy commit on it. A local issue file gets `status: fixed`, the PR and the
+    issue; tell it the deploy commit and the smoke result with `bash $S/pr.sh notify` (a terminal run:
+    `gh issue comment`). A local issue file gets `status: fixed`, the PR and the
     deploy commit.
 11. Go to stage 8.
 

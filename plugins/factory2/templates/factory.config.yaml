@@ -72,11 +72,12 @@ ship:
   rollback: ""              # e.g. "make rollback-prod"
 
 review:
-  via: pr                   # pr: the run opens its draft PR at the start; you follow it there, correct with
-                            # PR comments, and give both approvals by replying /approve: the plan (what
-                            # will be built and how, shown in the request) and the evidence before merge.
-                            # Deploy and rollback need none. Labels: factory2:awaiting-approval (and
-                            # -awaiting-<gate>) while one waits, factory2:approved-<gate> once given.
+  via: pr                   # pr: the run opens its draft PR at the start (the how). Everything that needs
+                            # you is asked on the run's issue (or the PR without one): both approvals, the
+                            # plan before any code and the evidence before merge, each with the exact
+                            # reply (issues.commands.approve), and questions. Deploy and rollback need none.
+                            # Labels: factory2:awaiting-approval (and -awaiting-<gate>) or
+                            # factory2:awaiting-input while you are needed, factory2:approved-<gate> once given.
                             # terminal: gates are asked in Claude Code. pr needs gh, its login and an origin.
   reviewers: []             # GitHub logins whose comments count; empty: the repository's owners, members
                             # and collaborators. Anyone else's comments are ignored and reported.
@@ -93,6 +94,21 @@ issues:                     # the GitHub issue a run was started from (/factory2
                             # A stage left out keeps the last mapped label.
   stage_label_prefix: ""    # with stage_labels: every issue label starting with this (e.g. "stage:") is one
                             # of the set, so labels the map never sets are cleared too
+  commands:
+    approve: /approve       # the reply that approves a factory gate. Every request for a person (approvals,
+                            # questions) goes to the run's issues, or its PR when it has none, and shows
+                            # this reply. Pick another word if your own automation already reads /approve.
+  flow:                     # your own issue flow approves the plan (the prd gate) instead of factory:
+    ready_for_plan: []      # labels: the issue takes a plan (e.g. [stage:2-planning]); before that factory
+                            # asks the owner to accept the idea with accept_idea
+    accept_idea: ""         # e.g. /approve
+    submit: ""              # the comment that submits the plan, e.g. /submit; factory first writes
+                            # docs/specs/<slug>/issue-plan.md (the issue's body, in plan_doc's format) into the issue
+    approve: ""             # what the owner replies to approve the plan, shown in the request, e.g. /approve
+    changes: ""             # how the owner asks for changes, e.g. "/changes <what>"
+    approved: []            # labels: the plan is approved (e.g. [stage:4-ready, stage:5-in-development]).
+                            # Empty: factory's own approval request
+    plan_doc: ""            # the doc that says how a plan is written in the issue's body, for the planner
 
 monitor:
   window_hours: 24

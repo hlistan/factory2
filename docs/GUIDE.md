@@ -181,15 +181,16 @@ each run gets its own branch and dev-server port.
 2. The reviewer's findings are posted on the PR, grouped by severity, and saved to
    `reviews/prd-review-<n>.json`. With blocking findings the run goes straight to stage 3; you don't
    have to wait for a request to comment.
-3. **Your gate is on the PR.** When the reviewer has nothing blocking, factory posts an **approval
-   request** naming the commit, and waits. The request itself shows **what will be built** (every
+3. **Your gate is on the issue** (on the PR for a run without one). When the reviewer has nothing
+   blocking, factory posts an **approval request** naming the commit, and waits. The request itself shows **what will be built** (every
    acceptance criterion) and **how the planner proposes to build it** (`plan.md` in full: summary,
    approach, decisions, steps, files, risks), plus any open questions, so you can decide from the
    comment.
-   - **Correct**: comment on the PR, in the conversation or inline on `prd.md` or `plan.md`. Each
+   - **Correct**: comment on the issue, or on the PR, in the conversation or inline on `prd.md` or `plan.md`. Each
      comment is saved word for word, with its author, link and line, to
      `docs/specs/<slug>/feedback/prd-<n>.md`, and goes to stage 3. factory replies to say it received them.
-   - **Approve**: reply with a comment whose first line is `/approve`. Anything after that line is
+   - **Approve**: reply with a comment whose first line is the approval reply (`/approve` unless
+     `issues.commands.approve` says otherwise). Anything after that line is
      saved as notes for the run. The approval holds for the named commit only: if anything was pushed
      after it, or a correction arrives in the same batch, factory says so and asks again. If the
      reviewer still has blocking findings, the request says so and your `/approve` is recorded as an
@@ -197,7 +198,7 @@ each run gets its own branch and dev-server port.
    - Only comments from people in `review.reviewers` count (default: the repository's owners, members
      and collaborators). Anyone else's comments are ignored, and you're told about them.
    - factory can't approve for you: approving in the terminal is refused on a PR run, and the guard
-     blocks Claude from posting comments or reviews on the PR except through `pr.sh`, which marks
+     blocks Claude from posting comments or reviews on the PR or the issue except through `pr.sh`, which marks
      its own comments.
    - **Stop**: tell Claude in the terminal. Resume later with `/factory2:run <slug>`; the comments
      you leave in the meantime are read when it resumes.
@@ -397,11 +398,35 @@ started yet.
 
 ### 5.1 Your gates
 
-There are two gates, and both are on the run's PR: factory posts an approval request naming a commit, and you
-reply with a comment whose first line is `/approve`. A comment without `/approve` is a correction. If
-corrections arrive together with an `/approve`, the corrections win and factory asks again. factory
-can't approve for you: `state.sh approve` refuses an approval without your PR comment, and the guard
-blocks Claude from posting comments, reviews or `factory2` labels on the PR except through `pr.sh`.
+**You decide what is built; the PR is how.** So everything that needs you is asked on the run's issue
+(and every other issue its PR names, `state.sh link-issue`), or on the PR when the run has no issue:
+the two approval requests, questions when a limit runs out (`pr.sh ask`), and notices (`pr.sh notify`).
+Each request carries what you need to decide inline and says exactly what to reply, with examples:
+
+```text
+#### What to do
+Reply on this issue with one of:
+- Approve: a comment whose first line is exactly
+    /approve
+- Ask for changes: write each change on its own line, naming the criterion it concerns, e.g.
+    AC-7: an empty list says "Nothing to review" instead of showing an empty table.
+- Stop the run: say so in the Claude Code session running it.
+```
+
+The approval reply is `issues.commands.approve` (default `/approve`; pick another word, such as
+`/accept`, when your own automation already reads `/approve`). A comment without it is a change request,
+except another slash command (your issue flow's `/verified` and the like), which factory leaves alone.
+If change requests arrive together with an approval, the changes win and factory asks again. factory
+can't approve for you: `state.sh approve` refuses an approval without your comment, and the guard
+blocks Claude from posting comments, reviews or `factory2` labels on the PR or the run's issues except
+through `pr.sh`.
+
+**With your own issue flow** (`issues.flow`): when your issues already go through a plan gate (the plan
+written into the issue body, submitted, approved by the owner, as a label), the plan gate is yours and
+factory doesn't add a second one. If the idea isn't accepted yet, factory asks you on the issue to accept
+it (`accept_idea`); then it writes the plan into the issue's body (`issue-plan.md`, in the format
+`plan_doc` describes), posts `submit`, and continues once the issue carries an `approved` label. Your
+flow's `changes` command is read as a change request.
 
 | Gate | You are approving | Holds for | Cancelled when |
 |---|---|---|---|
@@ -414,20 +439,25 @@ with the evidence approved, and the rollback command outside stage 7–8.
 
 Each is recorded in `approvals.<gate>` with the commit, your login and the comment's link.
 
-**Finding what waits for you.** The run's labels are on the GitHub issue it was started from: the
-issue is the feature, and its PR is only the change for it, so the PR follows the issue's state and
-carries no factory2 labels (any left from before are removed). A run without an issue labels its PR
-instead. The labels:
+**Finding what waits for you.** Status follows the same split, as in most projects that label by
+automation: scoped labels, one per category, moved one step at a time, with an `awaiting-*` label
+saying that a person must act. The run's labels are on its issues: the issue is the feature, and
+its PR is only a change for it (an issue can have several), so the PR carries no factory2 labels (any
+left from before are removed). The PR's own status is GitHub's: a draft while the change is in
+progress, ready for review once it can merge and its checks are green. A run without an issue labels
+its PR instead. The labels:
 
 | Label | Means |
 |---|---|
 | `factory2` | An issue (or PR) a factory2 run works on |
-| `factory2:awaiting-approval` | An approval request waits for your `/approve` (any gate) |
+| `factory2:awaiting-approval` | An approval request waits for your reply (any gate) |
+| `factory2:awaiting-input` | A question waits for your answer (a limit ran out, a conflict) |
 | `factory2:awaiting-<gate>` | The same, per gate: `prd` (the plan), `evidence` |
 | `factory2:approved-<gate>` | That approval is held; removed if the run goes back past the gate |
 | `factory2:stage-<n>-<name>` | The stage the run is in: `1-plan`, `2-prd-review`, `3-prd-fix`, `4-implement`, `5-review`, `6-evidence`, `7-ship`, `8-monitor`. Exactly one at a time |
 
-`gh issue list --label factory2:awaiting-approval` shows every run from an issue waiting for someone,
+`gh issue list --search 'label:factory2:awaiting-approval,factory2:awaiting-input'` shows every run
+from an issue waiting for someone (an approval or a question),
 and `gh pr list` with the same label the runs without one. The PR description also links the waiting request.
 
 **Following a feature on its issue.** A run started from a GitHub issue (`/factory2:run --issue <n>`,
@@ -490,6 +520,8 @@ The commits are labelled by sub-phase, so the PR reads in order:
 | `limits.budget_usd` | 60 | Pauses at the next gate |
 | `review.via` | `pr` | `pr`: the draft PR opens at the start, and every gate is held there (comments, `/approve`; the labels go on the run's issue when it has one). `terminal`: gates in Claude Code |
 | `ship.pr_ready`, `ship.checks_timeout` | `gh pr ready`, `3600` | At the merge, how the PR leaves draft and how long to wait for its checks; the PR is a draft until then and again whenever the run goes back before stage 7 |
+| `issues.commands.approve` | `/approve` | The reply that approves a gate, shown in every request |
+| `issues.flow.*` | empty | Your own issue flow approves the plan: `ready_for_plan`, `accept_idea`, `submit`, `approve`, `changes`, `approved`, `plan_doc` (5.1) |
 | `issues.labels` | `true` | `false`: factory labels no issue (your own automation does), nor its PR |
 | `issues.link_keyword` | `Fixes` | How the PR body names the run's issue (`Closes`, or your flow's word, such as `Implements`) |
 | `issues.stage_labels`, `issues.stage_label_prefix` | `{}`, `""` | Map factory's stages (1-8, `merged`) onto your own issue labels instead of `factory2:stage-*` |

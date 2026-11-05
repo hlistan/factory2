@@ -15,7 +15,7 @@ allowed-tools: Bash(bash ${CLAUDE_PLUGIN_ROOT}/scripts/*) Read Glob
 3. For the active (or named) run: stage and phase, rounds vs `limits`, approvals with their SHAs (and,
    for one given on the PR, who and the comment link), the PR (`.pr_url`; `review_via` says whether
    planning is followed there), whether an approval request is waiting (`.approval_request`: the gate and the link; on GitHub,
-   `gh issue list --label factory2:awaiting-approval` lists every run from an issue waiting for
+   `gh issue list --search 'label:factory2:awaiting-approval,factory2:awaiting-input'` lists every run from an issue waiting for
    someone, `gh pr list` with the same label the runs without one), the
    newest review's open findings from `docs/specs/<slug>/reviews/`,
    frozen or not, the criteria table from `docs/specs/<slug>/contract.json` (id, passes, test count), and

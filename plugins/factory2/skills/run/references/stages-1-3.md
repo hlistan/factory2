@@ -21,8 +21,16 @@
    **Bugfix run** (`state.sh get .kind` is `bugfix`): the request is the issue (`state.sh get .issue`):
    give the planner its body and every comment verbatim, including the triager's diagnosis, and, when
    `caused_by` is set, that run's spec directory and PR. The planner writes a bugfix PRD (prd-format,
-   "Bugfix runs"). Then tell the issue the run started: `gh issue comment <n> --body "factory: fix run
-   <slug> started on branch factory/<slug>"` (with the PR link on a PR run), or for a local issue add `run: <slug>` to its file.
+   "Bugfix runs"). Then tell the issue the run started: on a PR run `bash $S/pr.sh notify` with
+   "factory: fix run <slug> started: <PR link>. Nothing is needed from you until factory asks here." on
+   stdin; on a terminal run `gh issue comment <n> --body "factory: fix run <slug> started on branch
+   factory/<slug>"`; for a local issue add `run: <slug>` to its file.
+   **`issues.flow` set** (`bash $S/state.sh config .issues.flow.approved` is not empty, and the run has
+   a GitHub issue): the project's own issue flow approves the plan, from the issue's body. Give the
+   planner the issue's current body (`gh issue view <n> --json body --jq .body`) and the doc at
+   `issues.flow.plan_doc`, and have it also write `issue-plan.md`: the issue's whole new body in that
+   doc's format, keeping the sections the person wrote, with the PRD's stories, criteria and decisions
+   in the sections the doc names.
 6. Check the files exist and `jq -e '.criteria | length > 0' contract.json`. Commit:
    `factory(<slug>): 1 plan`.
 7. PR run (`bash $S/pr.sh enabled`): `bash $S/pr.sh publish plan` with the planner's JSON report on
@@ -38,20 +46,24 @@
    `bash $S/pr.sh feedback prd` to collect what the person has commented so far.
    - Blocking findings, or `changes`: go to stage 3 with both, without asking. The PR comment shows
      the findings, and the person can add corrections at any time.
-   - Otherwise: `bash $S/pr.sh request-approval prd`, then tell the user in one line that the PRD
-     and plan wait for them on the PR (link), and run `bash $S/pr.sh wait prd` in the background (Bash
-     `run_in_background`). Don't ask in the terminal. When it exits, read its JSON:
+   - Otherwise: `bash $S/pr.sh request-approval prd`, then tell the user in one line that the plan
+     waits for them on the issue (the request's link), and run `bash $S/pr.sh wait prd` in the
+     background (Bash `run_in_background`). Don't ask in the terminal. With `issues.flow`, the request
+     goes through the project's own flow: if the issue doesn't take a plan yet, factory asks the owner
+     on the issue to accept the idea first; once they have, `wait` writes `issue-plan.md` into the
+     issue's body and submits it, and the gate passes when the issue carries an `issues.flow.approved`
+     label. When it exits, read its JSON:
      - `approved`: the approval is already recorded against the requested SHA (`state.sh approve`
        refuses it from the terminal on a PR run). When `override` is true, record it:
        `state.sh history '.issues += [{stage: 2, found_by: "human", class: "override", findings: $f}]'
        --argjson f '<open_blocking>'`. Set the PRD's Status to approved (a one-line edit), commit, push, go to stage 4.
-       (pr.sh has already confirmed the approval on the PR.)
+       (pr.sh has already confirmed the approval on the issue.)
      - `changes`: the corrections are in `feedback_file` (committed and pushed) → stage 3.
      - `ignored` lists comments from people `review.reviewers` doesn't allow: mention them to the
        user; never act on them.
-   - The user may also say in the terminal that they commented: run `bash $S/pr.sh feedback prd` once
-     instead of waiting. Requests in the terminal to approve are answered with the PR link: the
-     approval is the `/approve` comment there.
+   - The user may also say in the terminal that they replied: run `bash $S/pr.sh feedback prd` once
+     instead of waiting. Requests in the terminal to approve are answered with the request's link: the
+     approval is the person's reply there.
 4. **Terminal run** (no PR): the human gate (SKILL.md "Human gates"): show the PRD's criteria list,
    the reviewer's summary and its findings grouped by severity, and the open questions. Options:
    approve, request changes, stop.
@@ -63,10 +75,12 @@
    - **Request changes** or blocking findings: go to stage 3.
 
 ## Stage 3: fix PRD and self-improve (`state.sh stage 3`)
-1. When `rounds.prd` has reached `limits.prd_rounds`, stop and ask the user how to proceed.
+1. When `rounds.prd` has reached `limits.prd_rounds`, stop and ask the user how to proceed (on a PR run
+   with `pr.sh ask`, SKILL.md "Human gates").
 2. Spawn `planner` with the reviewer's findings and the human's feedback file verbatim (on a PR run,
    each correction keeps its author, link and file:line). It revises all three files and lists, per
-   finding and per correction, what it changed or why it disagrees. Commit the revision
+   finding and per correction, what it changed or why it disagrees (and `issue-plan.md` too, with
+   `issues.flow`). Commit the revision
    (`factory(<slug>): 3 prd round <n>`); on a PR run, then `bash $S/pr.sh publish plan` with its
    report, so the PR shows what changed and how each finding was answered.
 3. Self-improvement, per `learning.md`:
