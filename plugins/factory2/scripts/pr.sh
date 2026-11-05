@@ -29,7 +29,7 @@
 #                                  per approval held. The run's GitHub issue (state .issue, also on a
 #                                  terminal run): factory2 and the stage label, or, with
 #                                  issues.stage_labels set, exactly the project's label mapped to the stage
-#                                  ("merged" after ship.sh merge). state.sh start and stage, and ship.sh
+#                                  ("merged" after ship.sh merge); none with issues.labels: false. state.sh start and stage, and ship.sh
 #                                  merge, call it, so the issue list shows where each run is.
 # Only people allowed by review.reviewers (default: the repository's owners, members and collaborators)
 # are read; other comments are reported as ignored. factory's own comments carry a marker,
@@ -218,6 +218,7 @@ labels() {
   local pr="" issue stage spec_hash key mapped own
   [ "$(state_get '.review_via // empty')" = pr ] && pr="$(pr_num)"
   issue="$(issue_ref)"
+  [ "$(cfg '.issues.labels' true)" = false ] && issue=""   # the project's own automation labels its issues
   [ -n "$pr$issue" ] || die "this run has neither a PR nor a GitHub issue to label"
   spec_hash="$(label_spec | cksum | cut -d' ' -f1)"
   if [ "$(state_get '.labels_ready // empty')" != "$spec_hash" ]; then

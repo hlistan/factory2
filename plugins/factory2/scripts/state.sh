@@ -68,7 +68,8 @@ need_active() { slug="$(factory_active_slug)"; [ -n "$slug" ] || { echo "factory
 spec_dir() { printf '%s/docs/specs/%s' "$root" "$1"; }
 history_file() { printf '%s/.factory/history/%s.json' "$root" "$1"; }
 refresh_labels() { # best effort: the stage label on the run's PR and GitHub issue; the next pr.sh call retries
-  case "$(state_get '.issue // empty')" in
+  local i; i="$(state_get '.issue // empty')"; [ "$(cfg '.issues.labels' true)" = false ] && i=""
+  case "$i" in
     [0-9]*|'#'[0-9]*|https://*/issues/[0-9]*) ;;
     *) [ "$(state_get '.review_via // empty')" = pr ] || return 0 ;;
   esac

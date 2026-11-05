@@ -433,8 +433,8 @@ evidence review. factory changes only its own `factory2` labels; the issue's oth
 stage-8 label stays while production is monitored. If your project already has workflow labels
 (`status:in-review`, `stage:5-in-development`), set `issues.stage_labels` to map factory's stages (and
 `merged`) onto them, with `issues.stage_label_prefix` naming the set: the issue then carries only your
-label, and factory2 adds none of its own. Leave the map empty while an automation of yours moves those
-labels. `issues.link_keyword` is the word the PR body names the issue with: `Fixes` by default, which
+label, and factory2 adds none of its own. If an automation of yours moves those labels, set
+`issues.labels: false`: factory then labels no issue (it would fight the automation). `issues.link_keyword` is the word the PR body names the issue with: `Fixes` by default, which
 closes it at the merge, or your flow's own word, such as `Implements`.
 
 Silence or an earlier approval never counts. Comments are always saved word for word under
@@ -483,6 +483,7 @@ The commits are labelled by sub-phase, so the PR reads in order:
 | `limits.evidence_rounds` | 3 | Asks you |
 | `limits.budget_usd` | 60 | Pauses at the next gate |
 | `review.via` | `pr` | `pr`: the draft PR opens at the start, and every gate is held there (comments, `/approve`, labels). `terminal`: gates in Claude Code |
+| `issues.labels` | `true` | `false`: factory labels no issue (your own automation does) |
 | `issues.link_keyword` | `Fixes` | How the PR body names the run's issue (`Closes`, or your flow's word, such as `Implements`) |
 | `issues.stage_labels`, `issues.stage_label_prefix` | `{}`, `""` | Map factory's stages (1-8, `merged`) onto your own issue labels instead of `factory2:stage-*` |
 | `review.reviewers` | `[]` | GitHub logins whose PR comments count; empty means the repository's owners, members and collaborators |

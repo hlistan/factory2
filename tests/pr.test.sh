@@ -291,4 +291,9 @@ printf '  stage_label_prefix: "stage:"\n' >> "$R2/.factory/config.yaml"
 bash "$S/state.sh" set '.ship.merged = null' >/dev/null
 run bash "$P" labels;                          t_code 0 "labels with a prefix"
 t_eq "$(sort "$FAKE/issue_labels" | tr '\n' ' ')" "priority:p1 stage:7-merge-ready " "the prefix clears labels the map never sets"
+printf '  labels: false\n' >> "$R2/.factory/config.yaml"
+n_edits="$(wc -l < "$FAKE/issue_edits")"
+bash "$S/state.sh" stage 8 >/dev/null
+run bash "$P" labels;                          t_code 1 "issues.labels false: nothing to label on a terminal run"
+t_eq "$(wc -l < "$FAKE/issue_edits")" "$n_edits" "and the issue is left to the project's automation"
 t_done
