@@ -64,7 +64,8 @@ evidence:
 
 ship:
   pr_open: "gh pr create --draft --fill"
-  pr_ready: "gh pr ready"
+  pr_ready: "gh pr ready"    # at merge: the PR leaves draft, then every check on it must pass
+  checks_timeout: 3600      # seconds ship.sh merge waits for the PR's checks
   merge: "gh pr merge --squash"
   deploy: ""                # e.g. "make deploy-prod"; the guard blocks it outside stage 7 with the evidence approved
   smoke: ""                 # e.g. "BASE_URL=https://example.com npx playwright test --grep @smoke"
@@ -82,7 +83,7 @@ review:
   poll_seconds: 60          # how often a waiting run checks the PR for comments
 
 issues:                     # the GitHub issue a run was started from (/factory2:run --issue <n>)
-  labels: true              # false: factory labels no issue, when your own automation moves their labels
+  labels: true              # false: factory labels no issue (nor its PR), when your own automation moves their labels
   link_keyword: Fixes       # how the PR body names it: Fixes, Closes (closes it at the merge), or your
                             # flow's own word, such as Implements
   stage_labels: {}          # factory stage (1-8, and merged) -> the issue label that shows it. Empty: the

@@ -7,7 +7,8 @@
 #                       memory line it adds is one of the run's calibration lines or moved within the
 #                       commit); and every check is green (the frozen
 #                       snapshot; failures known at the baseline are allowed). Records ship.verified.
-#   ship.sh merge       HEAD must be the verified commit and pushed. Runs ship.merge, then records the merged
+#   ship.sh merge       HEAD must be the verified commit and pushed. With a PR, takes it out of draft and
+#                       waits for its checks on GitHub (pr.sh ready): any failed, no merge. Runs ship.merge, then records the merged
 #                       commit on origin/<default_branch> as ship.merged and refreshes the issue's label.
 #   ship.sh deploy      runs ship.deploy (FACTORY_DEPLOY_SHA = the merged commit). Stage 7, evidence approved,
 #                       merged. An empty ship.deploy is skipped (exit 0) and recorded as skipped.
@@ -124,6 +125,10 @@ case "$cmd" in
     [ "$v" = "$head" ] || die "HEAD isn't the verified commit; run ship.sh verify first"
     br="$(G symbolic-ref --short -q HEAD)"
     [ -n "$br" ] && [ "$(G ls-remote origin "refs/heads/$br" 2>/dev/null | cut -f1)" = "$head" ] || die "push $br first: the PR must contain exactly the verified commit"
+    if [ -n "$(state_get '.pr // empty')" ]; then   # out of draft, and every check on GitHub passed
+      prc=0; bash "$FACTORY_SCRIPTS/pr.sh" ready || prc=$?
+      case "$prc" in 0) ;; 4) die "the PR's checks are still running; run ship.sh merge again" ;; *) die "the PR isn't ready to merge: its checks failed (stage 5)" ;; esac
+    fi
     m="$(cfg '.ship.merge' 'gh pr merge --squash')"
     run_cmd "$m" "$run/merge.log" || die "ship.merge failed: $m"
     G fetch -q origin "$default" || die "couldn't fetch origin/$default after the merge"

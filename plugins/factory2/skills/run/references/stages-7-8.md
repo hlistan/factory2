@@ -29,7 +29,10 @@ is gone and only git-ignored state changes.
    conflict-free, unmodified merge of origin/main or that bookkeeping commit (only memory lines that are
    this run's calibration lines); every check green. Exit 1 names each commit it doesn't cover: the
    evidence no longer matches, back to stage 6.
-6. `git push`, then `bash $S/ship.sh merge` (runs `ship.merge` and records the merged commit).
+6. `git push`, then `bash $S/ship.sh merge`. With a PR it takes it out of draft and waits for its checks
+   on GitHub, then runs `ship.merge` and records the merged commit. A failed check (exit 1, the PR is a
+   draft again) is a defect: stage 5's fix loop with the failing check. Checks still running past
+   `ship.checks_timeout`: run it again.
 7. `bash $S/ship.sh deploy` (skipped, exit 0, when `ship.deploy` is empty), then `bash $S/ship.sh smoke`.
    On a PR run, `bash $S/pr.sh publish note` with the deployed commit and the smoke result.
 8. **Smoke fails** (exit 1; the change is already merged, so it can't go back to stage 5):

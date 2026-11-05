@@ -94,7 +94,8 @@ factory2 tells you when the plan waits for you on the PR. Read it there, comment
 reply `/approve`. To see every run waiting for someone:
 
 ```sh
-gh pr list --label factory2:awaiting-approval
+gh issue list --label factory2:awaiting-approval   # runs started from an issue: the labels are on it
+gh pr list --label factory2:awaiting-approval      # runs without one: on their PR
 ```
 
 Your project's checks are its own commands. Each writes JUnit XML into `$FACTORY_REPORTS`, and a test

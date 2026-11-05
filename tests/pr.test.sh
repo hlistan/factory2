@@ -20,7 +20,14 @@ ts() { date -u +%Y-%m-%dT%H:%M:%SZ; }
 case "$1 $2" in
   "auth status") exit 0 ;;
   "pr view") [ -f "$FAKE/pr.json" ] || { echo "no pull requests found" >&2; exit 1; }
-    jq --argjson l "$(jq -R '{name: .}' "$FAKE/labels" 2>/dev/null | jq -s .)" '. + {labels: $l}' "$FAKE/pr.json" ;;
+    q=.; for a in "$@"; do [ "${prev:-}" = --jq ] && q="$a"; prev="$a"; done
+    jq --argjson l "$(jq -R '{name: .}' "$FAKE/labels" 2>/dev/null | jq -s .)" --argjson d "$([ -f "$FAKE/ready" ] && echo false || echo true)" \
+      '. + {labels: $l, isDraft: $d}' "$FAKE/pr.json" | jq -r "$q" ;;
+  "pr ready") if [ "${4:-}" = --undo ]; then rm -f "$FAKE/ready"; echo undo >> "$FAKE/ready_calls"; else touch "$FAKE/ready"; echo ready >> "$FAKE/ready_calls"; fi ;;
+  "pr checks")   # $FAKE/checks: one JSON array per call, the last one repeating; none: "no checks reported"
+    [ -s "$FAKE/checks" ] || { echo "no checks reported on the 'x' branch" >&2; exit 1; }
+    head -n 1 "$FAKE/checks"; [ "$(wc -l < "$FAKE/checks")" -gt 1 ] && { tail -n +2 "$FAKE/checks" > "$FAKE/c2"; mv "$FAKE/c2" "$FAKE/checks"; }
+    exit 0 ;;
   "label create") printf '%s\n' "$3" >> "$FAKE/repo_labels" ;;
   "issue view") jq -n --argjson l "$(jq -R '{name: .}' "$FAKE/issue_labels" 2>/dev/null | jq -s .)" '{labels: $l}' ;;
   "issue edit")
@@ -296,4 +303,56 @@ n_edits="$(wc -l < "$FAKE/issue_edits")"
 bash "$S/state.sh" stage 8 >/dev/null
 run bash "$P" labels;                          t_code 1 "issues.labels false: nothing to label on a terminal run"
 t_eq "$(wc -l < "$FAKE/issue_edits")" "$n_edits" "and the issue is left to the project's automation"
+# --- a run with an issue: the issue carries the run's labels, the PR follows it and carries none
+R3="$(new_repo)"; FACTORY_ROOT="$R3"
+write_config "$R3" 'issues:
+  link_keyword: Implements'
+git -C "$R3" add -A && git -C "$R3" commit -q -m config
+git init -q --bare "$T_TMP/origin3.git"; git -C "$R3" remote add origin "$T_TMP/origin3.git"
+: > "$FAKE/issue_labels"
+bash "$S/state.sh" start ops --issue 43 --feature >/dev/null
+bash "$S/state.sh" branch >/dev/null
+printf 'factory2\nfactory2:stage-1-plan\nfactory2:awaiting-prd\nbug\n' > "$FAKE/labels"   # left from before
+runi bash "$P" open <<< "Close abuse notices";  t_code 0 "open a PR for an issue's run"
+t_eq "$(sort "$FAKE/labels" | tr '\n' ' ')" "bug " "the PR carries no factory2 labels; its own stay"
+t_eq "$(sort "$FAKE/issue_labels" | tr '\n' ' ')" "factory2 factory2:stage-1-plan " "the issue carries the run's labels"
+t_has "$(cat "$FAKE/body.md")" "Implements #43" "the PR names its issue"
+t_has "$(cat "$FAKE/body.md")" "the issue carries this run's labels" "the body says where the labels are"
+bash "$S/state.sh" set '.approval_request = {gate: "prd"} | .approvals = {}' >/dev/null
+run bash "$P" labels;                          t_code 0 "labels with a request waiting"
+t_has "$(cat "$FAKE/issue_labels")" "factory2:awaiting-prd" "the waiting request is on the issue"
+t_hasnt "$(cat "$FAKE/labels")" "factory2" "and not on the PR"
+printf '  labels: false\n' >> "$R3/.factory/config.yaml"
+printf 'factory2:stage-2-prd-review\n' >> "$FAKE/labels"
+n_edits="$(wc -l < "$FAKE/issue_edits")"
+run bash "$P" labels;                          t_code 0 "issues.labels false on a PR run"
+t_hasnt "$(cat "$FAKE/labels")" "factory2" "the PR still carries none"
+t_eq "$(wc -l < "$FAKE/issue_edits")" "$n_edits" "and the issue is left to the project's automation"
+run bash "$P" body;                            t_code 0 "body on a run whose issue the project labels"
+t_hasnt "$(cat "$FAKE/body.md")" "Find waiting requests" "no label hint once the project labels its issues"
+bash "$S/state.sh" end >/dev/null
+# --- ready to merge: out of draft, and every check on the PR passed; in progress: a draft
+FACTORY_ROOT="$R"
+bash "$S/state.sh" resume dark-mode >/dev/null 2>&1 || true
+rm -f "$FAKE/ready" "$FAKE/ready_calls"
+printf '[{"name":"ci","bucket":"pending","link":"u"}]\n[{"name":"ci","bucket":"pass","link":"u"},{"name":"lint","bucket":"skipping","link":"u"}]\n' > "$FAKE/checks"
+run bash "$P" ready;                           t_code 0 "ready once the pending check passes"
+t_eq "$(cat "$FAKE/ready_calls")" "ready" "the PR left draft"
+t_has "$OUT" "1 pass, 1 skipping" "and says what the checks were"
+printf '[{"name":"ci","bucket":"fail","link":"https://ci/1"}]\n' > "$FAKE/checks"
+run bash "$P" ready;                           t_code 1 "a failed check: not ready"
+t_has "$ERR" "- ci: https://ci/1" "names the failed check"
+t_eq "$(tail -n 1 "$FAKE/ready_calls")" "undo" "and the PR is a draft again"
+: > "$FAKE/checks"
+run bash "$P" ready;                           t_code 0 "a PR with no checks is ready"
+printf '[{"name":"ci","bucket":"pending","link":"u"}]\n' > "$FAKE/checks"
+run bash "$P" ready --timeout 1;               t_code 4 "checks still running past the timeout"
+touch "$FAKE/ready"; : > "$FAKE/ready_calls"
+run bash "$P" draft;                           t_code 0 "draft"
+t_eq "$(cat "$FAKE/ready_calls")" "undo" "puts a ready PR back in draft"
+run bash "$P" draft;                           t_code 0 "draft again"
+t_eq "$(cat "$FAKE/ready_calls")" "undo" "and leaves a draft alone"
+touch "$FAKE/ready"; : > "$FAKE/ready_calls"
+bash "$S/state.sh" stage 7 >/dev/null; bash "$S/state.sh" stage 5 >/dev/null
+t_eq "$(cat "$FAKE/ready_calls")" "undo" "going back before stage 7 makes the PR a draft"
 t_done

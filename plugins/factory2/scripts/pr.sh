@@ -23,14 +23,23 @@
 #                                  (exit 4 on timeout)
 #   pr.sh body                     refreshes the PR description (artifacts, approvals, review ledger) and
 #                                  the labels
-#   pr.sh labels                   sets the factory2 labels from the run state. The PR: factory2,
+#   pr.sh labels                   sets the factory2 labels from the run state, on the run's GitHub issue
+#                                  (state .issue, also on a terminal run): factory2,
 #                                  factory2:stage-<n>-<name>, factory2:awaiting-approval and
 #                                  factory2:awaiting-<gate> while a request waits, factory2:approved-<gate>
-#                                  per approval held. The run's GitHub issue (state .issue, also on a
-#                                  terminal run): factory2 and the stage label, or, with
-#                                  issues.stage_labels set, exactly the project's label mapped to the stage
-#                                  ("merged" after ship.sh merge); none with issues.labels: false. state.sh start and stage, and ship.sh
-#                                  merge, call it, so the issue list shows where each run is.
+#                                  per approval held; or, with issues.stage_labels set, exactly the
+#                                  project's label mapped to the stage ("merged" after ship.sh merge); none
+#                                  with issues.labels: false. A run with an issue labels its PR with
+#                                  nothing (the PR follows the issue); a run without one labels the PR.
+#                                  state.sh start and stage, and ship.sh merge, call it, so the issue list
+#                                  shows where each run is.
+#   pr.sh ready [--timeout <s>]    the change is ready to merge: takes the PR out of draft (ship.pr_ready) and
+#                                  waits for its checks on GitHub, every review.poll_seconds, up to --timeout
+#                                  (default ship.checks_timeout, 3600 s). Exit 0 when every check passed or
+#                                  was skipped, or the PR has none; 1 when one failed or was cancelled (it
+#                                  names them, and the PR goes back to draft); 4 on timeout.
+#   pr.sh draft                    the change is in progress: puts the PR back in draft when it isn't.
+#                                  state.sh stage calls it when the run goes back before stage 7.
 # Only people allowed by review.reviewers (default: the repository's owners, members and collaborators)
 # are read; other comments are reported as ignored. factory's own comments carry a marker,
 # <!-- factory2:<slug>:<kind> -->, and are never read as the person's.
@@ -212,14 +221,22 @@ sync_labels() { # <pr|issue> <ref> <wanted> [<managed> [<prefix>]]: among the fa
   gh_ "$kind" edit "$ref" ${add:+--add-label "${add#,}"} ${rm:+--remove-label "${rm#,}"} >/dev/null || echo "factory: updating the $kind's labels failed" >&2
 }
 
-# The run's labels: on its PR, factory2, the stage, and the approvals waiting and held; on the issue it
-# was started from, factory2 and the stage, so maintainers see each issue's progress in the issue list.
+# The run's labels live on the issue it was started from: factory2, the stage, and the approvals waiting
+# and held, so maintainers follow each feature in the issue list. Its PR is only the change for that
+# issue and carries none (any left from before are removed). A run without an issue labels its PR instead.
 labels() {
-  local pr="" issue stage spec_hash key mapped own
+  local pr="" issue stage spec_hash key mapped own run_labels
   [ "$(state_get '.review_via // empty')" = pr ] && pr="$(pr_num)"
   issue="$(issue_ref)"
-  [ "$(cfg '.issues.labels' true)" = false ] && issue=""   # the project's own automation labels its issues
   [ -n "$pr$issue" ] || die "this run has neither a PR nor a GitHub issue to label"
+  if [ -n "$issue" ] && [ -n "$pr" ]; then
+    sync_labels pr "$pr" ""   # the PR follows its issue
+    pr=""
+    [ "$(cfg '.issues.labels' true)" = false ] && return 0
+  fi
+  if [ "$(cfg '.issues.labels' true)" = false ]; then   # the project's own automation labels its issues
+    die "this run's issue is labelled by the project's own automation (issues.labels: false)"
+  fi
   spec_hash="$(label_spec | cksum | cut -d' ' -f1)"
   if [ "$(state_get '.labels_ready // empty')" != "$spec_hash" ]; then
     label_spec | while IFS="$(printf '\t')" read -r name color desc; do
@@ -232,14 +249,15 @@ labels() {
   key="$(state_get 'if .ship.merged then "merged" else (.stage // 1 | tostring) end')"
   mapped="$(factory_config_json | jq -r '.issues.stage_labels // {} | to_entries[] | .value | strings')"
   own="$(factory_config_json | jq -r --arg k "$key" '.issues.stage_labels // {} | .[$k] // empty')"
-  [ -n "$pr" ] && sync_labels pr "$pr" "$(state_get '.' | jq -r --arg st "$stage" '"factory2", $st,
+  run_labels="$(state_get '.' | jq -r --arg st "$stage" '"factory2", $st,
     (if .approval_request then "factory2:awaiting-approval", "factory2:awaiting-\(.approval_request.gate)" else empty end),
     (.approvals // {} | keys[] | "factory2:approved-\(.)")')"
-  # a stage the map leaves out keeps the label of the last mapped one
+  [ -n "$pr" ] && sync_labels pr "$pr" "$run_labels"
+  # with issues.stage_labels the issue carries only the project's label; a stage the map leaves out keeps
+  # the label of the last mapped one
   if [ -n "$issue" ] && [ -n "$mapped" ]; then
     [ -z "$own" ] || sync_labels issue "$issue" "$own" "$mapped" "$(cfg '.issues.stage_label_prefix')"
-  elif [ -n "$issue" ]; then sync_labels issue "$issue" "factory2
-$stage"; fi
+  elif [ -n "$issue" ]; then sync_labels issue "$issue" "$run_labels"; fi
   return 0
 }
 
@@ -295,7 +313,12 @@ body() {
     fi
     printf '\n### How to steer\n\n- **Correct**: comment on this PR, here or inline on the files. Every comment from a reviewer goes to the planner word for word.\n'
     printf -- '- **Approve**: when factory asks for approval, reply with a comment whose first line is `/approve`. factory asks twice, both here: for the plan (what will be built and how) before any code, and for the evidence before merge. Deploy and rollback follow without another approval.\n'
-    printf -- '- **Find waiting requests**: the `factory2:awaiting-approval` label (`factory2:awaiting-prd` for the plan, `factory2:awaiting-evidence`); approvals held carry `factory2:approved-<gate>`.\n'
+    # the run's labels are on its issue when it has one; with issues.labels: false there are none
+    if [ -z "$(issue_ref)" ]; then
+      printf -- '- **Find waiting requests**: the `factory2:awaiting-approval` label (`factory2:awaiting-prd` for the plan, `factory2:awaiting-evidence`); approvals held carry `factory2:approved-<gate>`.\n'
+    elif [ "$(cfg '.issues.labels' true)" != false ] && [ "$(factory_config_json | jq '.issues.stage_labels // {} | length')" = 0 ]; then
+      printf -- '- **Find waiting requests**: the issue carries this run'"'"'s labels: `factory2:awaiting-approval` (`factory2:awaiting-prd` for the plan, `factory2:awaiting-evidence`); approvals held carry `factory2:approved-<gate>`. This PR carries none.\n'
+    fi
   } > "$f"
   gh_ pr edit "$(pr_num)" --body-file "$f" >/dev/null || die "gh pr edit failed"
   labels
@@ -529,5 +552,52 @@ case "$cmd" in
 
   body) body ;;
   labels) labels ;;
+  draft)
+    n="$(pr_num)"; [ -n "$n" ] || die "this run has no PR"
+    if [ "$(gh_ pr view "$n" --json isDraft --jq .isDraft 2>/dev/null)" = false ]; then
+      gh_ pr ready "$n" --undo >/dev/null || die "putting PR #$n back in draft failed"
+      echo "factory: PR #$n is a draft again: the change is in progress"
+    fi
+    ;;
+  ready)
+    n="$(pr_num)"; [ -n "$n" ] || die "this run has no PR"
+    timeout="$(cfg '.ship.checks_timeout' 3600)"
+    while [ $# -gt 0 ]; do
+      case "$1" in --timeout) timeout="${2:-}"; shift 2 || { echo "factory: $1 needs a value" >&2; exit 2; } ;; *) echo "factory: ready [--timeout <s>]" >&2; exit 2 ;; esac
+    done
+    case "$timeout" in ''|*[!0-9]*) timeout=3600 ;; esac
+    poll="$(cfg '.review.poll_seconds' 60)"; case "$poll" in ''|*[!0-9]*) poll=60 ;; esac
+    if [ "$(gh_ pr view "$n" --json isDraft --jq .isDraft 2>/dev/null)" != false ]; then
+      rc="$(cfg '.ship.pr_ready' 'gh pr ready')"
+      (cd "$root" && bash -c "$rc") >/dev/null || die "ship.pr_ready failed: $rc"
+    fi
+    started=$(date +%s); seen_none=0
+    while :; do
+      out="$(gh_ pr checks "$n" --json name,bucket,link 2>"$run/.checks.err")" || true
+      if ! printf '%s' "$out" | jq -e 'type == "array"' >/dev/null 2>&1; then
+        grep -qi "no checks" "$run/.checks.err" || die "reading the PR's checks failed: $(cat "$run/.checks.err")"
+        out='[]'
+      fi
+      failed="$(printf '%s' "$out" | jq -r '.[] | select(.bucket == "fail" or .bucket == "cancel") | "- \(.name): \(.link // "")"')"
+      pending="$(printf '%s' "$out" | jq '[.[] | select(.bucket == "pending")] | length')"
+      if [ -n "$failed" ]; then
+        gh_ pr ready "$n" --undo >/dev/null 2>&1 || true
+        printf 'factory: checks failed on PR #%s; it is a draft again:\n%s\n' "$n" "$failed" >&2
+        exit 1
+      fi
+      if [ "$pending" = 0 ]; then
+        # a fresh push may not have registered its checks yet: no checks counts only on a second look
+        if [ "$(printf '%s' "$out" | jq length)" -gt 0 ] || [ "$seen_none" = 1 ]; then
+          echo "factory: PR #$n is ready for review; checks: $(printf '%s' "$out" | jq -r 'if length == 0 then "none" else (group_by(.bucket) | map("\(length) \(.[0].bucket)") | join(", ")) end')"
+          exit 0
+        fi
+        seen_none=1
+      fi
+      if [ $(( $(date +%s) - started + poll )) -gt "$timeout" ]; then
+        echo "factory: PR #$n: checks still running after ${timeout}s" >&2; exit 4
+      fi
+      sleep "$poll"
+    done
+    ;;
   *) echo "factory: unknown pr command '$cmd'" >&2; exit 2 ;;
 esac

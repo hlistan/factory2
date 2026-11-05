@@ -84,13 +84,13 @@ fails or the triager recommends one. **On a run with a draft PR** (`bash $S/pr.s
 approval is given on the PR, never in the terminal:
 1. `bash $S/pr.sh request-approval <prd|evidence>` (evidence with `--details -` and a here-document: the
    review-pack link). The prd request shows the criteria and plan.md inline, so the person reads what
-   will be built and how on the PR. It labels the PR `factory2:awaiting-approval` and
-   `factory2:awaiting-<gate>`.
+   will be built and how on the PR. It labels the run's issue (or, for a run without
+   one, the PR) `factory2:awaiting-approval` and `factory2:awaiting-<gate>`.
 2. Tell the user in one line that the request waits on the PR (link), then run `bash $S/pr.sh wait
    <gate>` in the background (Bash `run_in_background`). If the user says they commented, run
    `bash $S/pr.sh feedback <gate>` once instead.
 3. Its JSON: `approved` means the approval is recorded (with the approver and comment link, and the
-   label `factory2:approved-<gate>`); `changes` means the person's comments are in `feedback_file`,
+   label `factory2:approved-<gate>`, on the issue when the run has one); `changes` means the person's comments are in `feedback_file`,
    committed, and the request is closed; `ignored` lists comments from people `review.reviewers`
    doesn't allow: mention them, never act on them.
 `state.sh approve` refuses an approval without the PR comment, and the guard blocks `gh pr comment`,

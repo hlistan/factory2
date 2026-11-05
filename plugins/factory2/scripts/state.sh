@@ -217,6 +217,8 @@ case "$cmd" in
     state_update '(if $n < (.stage // 1) then .approvals |= with_entries(select(({prd: 2, evidence: 6}[.key] // 0) < $n)) else . end) | .stage = $n | .stage_entered = $at' --argjson n "$n" --arg at "$(now_utc)"
     [ -z "$revoked" ] || echo "factory: back to stage $n; approvals revoked: $revoked"
     refresh_labels
+    # before stage 7 the change is in progress: its PR is a draft (best effort; pr.sh ready undoes it)
+    if [ "$n" -lt 7 ] && [ -n "$(state_get '.pr // empty')" ]; then bash "$FACTORY_SCRIPTS/pr.sh" draft >/dev/null 2>&1 || true; fi
     ;;
   phase)
     need_active

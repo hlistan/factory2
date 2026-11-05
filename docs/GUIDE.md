@@ -134,7 +134,7 @@ then on, everything for the run lives in three places:
 
 | Where | What | In git? |
 |---|---|---|
-| The run's draft PR | Every planning step as a comment; the artifacts, approvals and review ledger in its description | On GitHub |
+| The run's PR (a draft while the change is in progress) | Every planning step as a comment; the artifacts, approvals and review ledger in its description | On GitHub |
 | `docs/specs/<slug>/` | `request.md`, `prd.md`, `contract.json`, `plan.md`, `reviews/`, `feedback/` | Committed |
 | `.factory/history/<slug>.json` | The run's measurement record and lesson lines | Committed |
 | `.factory/runs/<slug>/` | State, freeze hashes, reports, logs, evidence | Ignored |
@@ -296,7 +296,9 @@ Advisory findings are not fixed automatically; you see them at the stage 6 gate.
 3. `ship.sh verify` checks that every commit after your evidence approval is either a clean, unedited
    merge from main or that bookkeeping commit (whose memory lines must be the run's recorded lessons),
    and that every check is green. Anything else sends the run back to stage 6.
-4. Merges the PR and deploys, without asking again: your evidence approval covers it. A hook blocks
+4. Takes the PR out of draft and waits for its checks on GitHub (up to `ship.checks_timeout`). If one
+   fails, the PR is a draft again and the run goes back to stage 5 to fix it. Otherwise it merges the
+   PR and deploys, without asking again: your evidence approval covers it. A hook blocks
    the deploy command outside stage 7 or without that approval. The deployed commit and the smoke
    result are noted on the PR.
 5. Runs the smoke tests. If they fail, it **files an issue first**, rolls back (when `ship.rollback` is
@@ -412,29 +414,33 @@ with the evidence approved, and the rollback command outside stage 7–8.
 
 Each is recorded in `approvals.<gate>` with the commit, your login and the comment's link.
 
-**Finding what waits for you.** The PR carries labels:
+**Finding what waits for you.** The run's labels are on the GitHub issue it was started from: the
+issue is the feature, and its PR is only the change for it, so the PR follows the issue's state and
+carries no factory2 labels (any left from before are removed). A run without an issue labels its PR
+instead. The labels:
 
 | Label | Means |
 |---|---|
-| `factory2` | A factory2 run's PR |
+| `factory2` | An issue (or PR) a factory2 run works on |
 | `factory2:awaiting-approval` | An approval request waits for your `/approve` (any gate) |
 | `factory2:awaiting-<gate>` | The same, per gate: `prd` (the plan), `evidence` |
 | `factory2:approved-<gate>` | That approval is held; removed if the run goes back past the gate |
 | `factory2:stage-<n>-<name>` | The stage the run is in: `1-plan`, `2-prd-review`, `3-prd-fix`, `4-implement`, `5-review`, `6-evidence`, `7-ship`, `8-monitor`. Exactly one at a time |
 
-`gh pr list --label factory2:awaiting-approval` (or the same filter in GitHub's PR list) shows every
-run waiting for someone. The PR description also links the waiting request.
+`gh issue list --label factory2:awaiting-approval` shows every run from an issue waiting for someone,
+and `gh pr list` with the same label the runs without one. The PR description also links the waiting request.
 
 **Following a feature on its issue.** A run started from a GitHub issue (`/factory2:run --issue <n>`,
-for a bug or a feature) labels that issue `factory2` and with its stage label, and moves the stage label
-as the run moves, on a terminal run too. `gh issue list --label factory2` shows which issues are in
+for a bug or a feature) puts the labels above on that issue, and moves the stage label as the run
+moves, on a terminal run too. `gh issue list --label factory2` shows which issues are in
 development and where each one stands; `--label factory2:stage-6-evidence` shows the ones waiting for
 evidence review. factory changes only its own `factory2` labels; the issue's other labels stay. The
 stage-8 label stays while production is monitored. If your project already has workflow labels
 (`status:in-review`, `stage:5-in-development`), set `issues.stage_labels` to map factory's stages (and
 `merged`) onto them, with `issues.stage_label_prefix` naming the set: the issue then carries only your
 label, and factory2 adds none of its own. If an automation of yours moves those labels, set
-`issues.labels: false`: factory then labels no issue (it would fight the automation). `issues.link_keyword` is the word the PR body names the issue with: `Fixes` by default, which
+`issues.labels: false`: factory then labels neither the issue (it would fight the automation) nor its
+PR. `issues.link_keyword` is the word the PR body names the issue with: `Fixes` by default, which
 closes it at the merge, or your flow's own word, such as `Implements`.
 
 Silence or an earlier approval never counts. Comments are always saved word for word under
@@ -482,8 +488,9 @@ The commits are labelled by sub-phase, so the PR reads in order:
 | `limits.review_rounds` | 2 | Asks you, with the open findings |
 | `limits.evidence_rounds` | 3 | Asks you |
 | `limits.budget_usd` | 60 | Pauses at the next gate |
-| `review.via` | `pr` | `pr`: the draft PR opens at the start, and every gate is held there (comments, `/approve`, labels). `terminal`: gates in Claude Code |
-| `issues.labels` | `true` | `false`: factory labels no issue (your own automation does) |
+| `review.via` | `pr` | `pr`: the draft PR opens at the start, and every gate is held there (comments, `/approve`; the labels go on the run's issue when it has one). `terminal`: gates in Claude Code |
+| `ship.pr_ready`, `ship.checks_timeout` | `gh pr ready`, `3600` | At the merge, how the PR leaves draft and how long to wait for its checks; the PR is a draft until then and again whenever the run goes back before stage 7 |
+| `issues.labels` | `true` | `false`: factory labels no issue (your own automation does), nor its PR |
 | `issues.link_keyword` | `Fixes` | How the PR body names the run's issue (`Closes`, or your flow's word, such as `Implements`) |
 | `issues.stage_labels`, `issues.stage_label_prefix` | `{}`, `""` | Map factory's stages (1-8, `merged`) onto your own issue labels instead of `factory2:stage-*` |
 | `review.reviewers` | `[]` | GitHub logins whose PR comments count; empty means the repository's owners, members and collaborators |

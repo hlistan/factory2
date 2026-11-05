@@ -25,7 +25,7 @@ capture details; `evidence.sh` does the work.
    the advisory findings; options approve, comment, stop. Comments go to
    `docs/specs/<slug>/feedback/evidence-<n>.md` either way (pr.sh writes them on a PR run).
 5. **Approve** (`approved` from pr.sh, or the terminal answer, then `bash $S/state.sh approve evidence
-   $(git rev-parse HEAD)` on a terminal run only): run `ship.pr_ready`, go to 7. This is the last
+   $(git rev-parse HEAD)` on a terminal run only): go to 7. The PR stays a draft until the merge. This is the last
    approval: stage 7 merges and deploys on it (on a terminal run, say so when you ask).
 6. **Comments**: spawn `triager` (read-only) with the comments, the PRD, contract.json and the QA
    report. It classifies each comment:
