@@ -11,6 +11,7 @@
 #                                    agent's effort, even the Agent tool's parameter. --effort-env-ok (after
 #                                    the user agreed) runs anyway and records the level in state.effort_env.
 #   state.sh branch                  switch to (or create) factory/<slug> and record the run's base there
+#   state.sh on-branch               exit 1 (saying how to switch) unless the checkout is on the run's branch
 #   state.sh end [--stop]            release the checkout (the run's files stay). --stop: the person stopped
 #                                    the run before merge: its PR is closed and the issue is todo again
 #                                    unless other PRs work on it (issue-flow.sh stop)
@@ -57,6 +58,13 @@ root="$FACTORY_ROOT_DIR"
 junit_scope() {
   local b; b="$(jq -r '.base // empty' "$run/state.json" 2>/dev/null)"
   scope=(); [ -z "$b" ] || scope=(--base "$b" --root "$root")
+}
+on_branch() { # the checkout is on the run's branch, or it says how to get there (exit 1)
+  local want cur; want="$(state_get '.branch // empty')"; [ -n "$want" ] || return 0
+  cur="$(git -C "$root" symbolic-ref --short -q HEAD)"
+  [ "$cur" = "$want" ] && return 0
+  echo "factory: the checkout is on ${cur:-a detached HEAD}, but run '$(factory_active_slug)' works on $want. Switch first: bash \$S/state.sh branch (or git switch $want), then retry." >&2
+  return 1
 }
 cmd="${1:-}"; [ $# -gt 0 ] && shift
 runs="$root/.factory/runs"
@@ -204,6 +212,7 @@ case "$cmd" in
     fi
     echo "factory: on $b (base $(state_get .base | cut -c1-12))"
     ;;
+  on-branch) need_active; on_branch && echo "factory: on $(state_get .branch)" ;;
   resume)
     effort_env_gate "${2:-}"
     slug="${1:-}"; slug_ok "$slug" && [ -f "$runs/$slug/state.json" ] || { echo "factory: no run '$slug'" >&2; exit 1; }
@@ -211,6 +220,8 @@ case "$cmd" in
     if [ -n "$cur" ] && [ "$cur" != "$slug" ]; then echo "factory: run '$cur' is active in this checkout" >&2; exit 1; fi
     printf '%s\n' "$slug" > "$runs/active"
     state_update '.effort_env = (if $e == "" then null else $e end)' --arg e "${CLAUDE_CODE_EFFORT_LEVEL:-}"
+    want="$(jq -r '.branch // empty' "$runs/$slug/state.json")"; cur="$(git -C "$root" symbolic-ref --short -q HEAD)"
+    [ -z "$want" ] || [ "$cur" = "$want" ] || echo "factory: the checkout is on ${cur:-a detached HEAD}, not $want: run state.sh branch before any work" >&2
     echo "factory: run '$slug' resumed at stage $(jq -r .stage "$runs/$slug/state.json") ($(jq -r .phase "$runs/$slug/state.json"))"
     ;;
   end)
@@ -225,6 +236,10 @@ case "$cmd" in
   set) need_active; [ $# -ge 1 ] || exit 2; state_update "$@" ;;
   stage)
     need_active; n="${1:-}"; case "$n" in [1-8]) ;; *) echo "factory: stage is 1-8" >&2; exit 2 ;; esac
+    # stages 2-7 work on the run's branch: say so before anything moves (stage 1 switches to it)
+    if [ "$n" -ge 2 ] && [ "$n" -le 7 ] && [ -z "$(state_get '.ship.merged // empty')" ]; then
+      on_branch || exit 1
+    fi
     spend_main
     # going back (a spec gap to stage 2, a defect or incident to stage 5, ...) revokes every approval
     # given at that stage or later: an approval holds only for the pass through the stages it was given in

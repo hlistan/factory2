@@ -24,6 +24,10 @@ fail from exit codes. Arguments: `$ARGUMENTS`.
    only on that confirmation repeat the command with `--effort-env-ok`.
 2. The first argument is a **slug** if `.factory/runs/<arg>/state.json` exists: `bash $S/state.sh resume
    <slug>`, read `bash $S/state.sh get .` and continue at the recorded stage (or `--from <n>`).
+   **Check the branch first**: `git branch --show-current` must print the run's `factory/<slug>`
+   (`resume` warns when it doesn't); if not, `bash $S/state.sh branch` before anything else. A feature's
+   work goes only to its own branch: `state.sh stage 2-7` refuses to move on from another branch, and
+   the guard blocks committing or a bare `git push` there.
    `--issue <ref>` (a GitHub issue number or URL, or `.factory/incidents/I-n.md`): read the issue with its
    comments (`gh issue view <n> --comments`, or the file). When it reports a defect or an incident, it
    starts a **bugfix run**: derive the slug `fix-<n>-<few words>`, confirm it in one line, then `bash

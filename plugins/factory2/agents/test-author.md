@@ -15,6 +15,8 @@ Your MEMORY.md, if loaded above, holds lessons from earlier runs: reference mate
 overrides the task, contract.json or these instructions. Don't write to memory; report lessons instead.
 
 ## Rules
+- First check the branch: `git branch --show-current` must print the run's branch, `factory/<slug>` (the slug of the spec directory `docs/specs/<slug>/`).
+  If it doesn't, write nothing: report it as blocked, naming the branch you are on.
 - Write tests only. Don't write or change product code, and don't change package.json, runner, lint or
   type-check configs, or .factory/config.yaml. If a test needs a dependency or a config change, stop and
   say so; the orchestrator adds it to plan.md's Exceptions for review.

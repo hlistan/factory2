@@ -6,6 +6,9 @@
 #   - skipping git hooks (--no-verify, `git commit -n`, `-c core.hooksPath=…`, HUSKY=0);
 #   - recursive deletes of / or of the home directory;
 #   - stopping processes by name (pkill, killall): kill by pid;
+#   - while a run is active and not yet merged: committing, merging, rebasing, cherry-picking, reverting
+#     or a bare `git push` in the run's checkout when it isn't on the run's branch (factory/<slug>):
+#     a feature's work goes only to its own branch;
 #   - the project's deploy and rollback commands (ship.deploy, ship.rollback in .factory/config.yaml)
 #     unless the active factory run is in stage 7 with the evidence approval recorded (deploy), or in
 #     stage 7-8 (rollback). Deploys go through /factory2:run; neither needs its own approval.
@@ -287,6 +290,8 @@ function check_git(w, nw, i, husky,   hooksoff, sub_cmd, t, k, c, force, del, al
   sub_cmd = w[i++]
   if (hooksoff && sub_cmd ~ /^(commit|push|merge|rebase|am|cherry-pick|revert)$/)
     block("skipping git hooks (core.hooksPath or HUSKY=0) skips the project's checks")
+  if (runbranch != "" && current != runbranch && sub_cmd ~ /^(commit|merge|rebase|cherry-pick|revert|am)$/)
+    block("git " sub_cmd " on " (current == "" ? "a detached HEAD" : "branch " current) ", but the active run works on " runbranch ": check with git branch --show-current, switch with git switch " runbranch " (bash scripts/state.sh branch), then retry")
   if (sub_cmd == "commit") {
     for (; i < nw; i++) {
       t = w[i]
@@ -321,6 +326,8 @@ function check_git(w, nw, i, husky,   hooksoff, sub_cmd, t, k, c, force, del, al
   if (force && all) block("force-pushing every branch (--mirror, or --all with force) overwrites protected branches")
   if (nr == 0) {
     if ((force || del) && protected_branch(current)) block("force-push to the protected branch " current)
+    if (runbranch != "" && current != runbranch && !all)
+      block("git push from " (current == "" ? "a detached HEAD" : "branch " current) ", but the active run works on " runbranch ": switch to it (git switch " runbranch ") or name the branch to push")
     return
   }
   for (k = 0; k < nr; k++) {
@@ -360,14 +367,19 @@ AWK
 
 h="${HOME:-}"
 h="${h%/}"
-pr=""; issues=""
+pr=""; issues=""; runbranch=""
 slug="$(factory_active_slug)"
+# the run's branch, checked only in the run's own checkout (another worktree or repository is other work)
+if [ -n "$slug" ] && [ -z "$(state_get '.ship.merged // empty' "$slug" 2>/dev/null)" ] \
+   && [ "$(git -C "$dir" rev-parse --show-toplevel 2>/dev/null)" = "$(git -C "$FACTORY_ROOT_DIR" rev-parse --show-toplevel 2>/dev/null)" ]; then
+  runbranch="$(state_get '.branch // empty' "$slug" 2>/dev/null)"
+fi
 if [ -n "$slug" ] && [ "$(state_get '.review_via // empty' "$slug" 2>/dev/null)" = pr ]; then
   pr="$(state_get '.pr // empty' "$slug" 2>/dev/null | tr -cd '0-9')"
   # the run's issue (same repository): where the person approves and answers
   issues="$(state_get '.issue // empty | tostring | ltrimstr("#") | sub(".*/issues/"; "") | select(test("^[0-9]+$"))' "$slug" 2>/dev/null)"
 fi
-reason="$(printf '%s' "$command" | awk -v home="$h" -v current="$current" -v extra="$default_branch" -v pr="$pr" -v issues="$issues" "$program")"
+reason="$(printf '%s' "$command" | awk -v home="$h" -v current="$current" -v extra="$default_branch" -v pr="$pr" -v issues="$issues" -v runbranch="$runbranch" "$program")"
 if [ -n "$reason" ]; then
   echo "Blocked by factory guardrail: $reason" >&2
   exit 2

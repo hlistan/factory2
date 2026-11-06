@@ -39,6 +39,25 @@ g 'echo origin | xargs -i git push --force {} main'; t_code 2 "GNU xargs -i take
 g 'echo x | xargs -J % git push -f origin main';     t_code 2 "BSD xargs -J takes one"
 g 'echo x | xargs --max-args 1 git push --force origin main'; t_code 2 "GNU long options with a separate value"
 bash "$S/state.sh" start demo >/dev/null
+# --- the run's work goes only to its branch
+g 'git commit -m wip';                       t_code 2 "commit before switching to the run's branch"
+t_has "$ERR" "git switch factory/demo" "says how to switch"
+g 'git push';                                t_code 2 "a bare push from another branch"
+g 'git push origin factory/demo';            t_code 0 "pushing the run's branch by name"
+g 'git pull --ff-only';                      t_code 0 "updating the default branch"
+bash "$S/state.sh" branch >/dev/null
+g 'git commit -m wip';                       t_code 0 "commit on the run's branch"
+g 'git push';                                t_code 0 "a bare push on it"
+git -C "$R" switch -q main
+g 'git rebase main';                         t_code 2 "rebase on another branch"
+run bash "$S/state.sh" stage 4;              t_code 1 "stage 4 refuses another branch"
+t_has "$ERR" "works on factory/demo" "and names the run's branch"
+run bash "$S/state.sh" on-branch;            t_code 1 "on-branch says no"
+OTHER="$(new_repo)"
+CODE=0; ERR="$(hook "$S/guard-bash.sh" "$(jq -n --arg c 'git commit -m x' --arg d "$OTHER" '{tool_name: "Bash", tool_input: {command: $c}, cwd: $d}')" 2>&1 >/dev/null)" || CODE=$?
+t_code 0 "another repository is other work"
+git -C "$R" switch -q factory/demo
+run bash "$S/state.sh" on-branch;            t_code 0 "on-branch says yes"
 g 'make deploy-prod';                        t_code 2 "deploy at stage 1"
 bash "$S/state.sh" stage 7 >/dev/null
 g 'make deploy-prod';                        t_code 2 "deploy at stage 7 without the evidence approval"

@@ -14,6 +14,7 @@ R="$(new_repo)"; export FACTORY_ROOT="$R"
 write_config "$R" 'limits:
   budget_usd: 0.05'
 bash "$S/state.sh" start s1 >/dev/null
+bash "$S/state.sh" branch >/dev/null
 bash "$S/state.sh" stage 4 >/dev/null
 ev() { jq -n --arg a "$1" --arg id "$2" --arg t "$3" '{agent_type: $a, agent_id: $id, agent_transcript_path: $t}'; }
 hook "$S/spend.sh" "$(ev factory2:implementer a1 "$FIX/transcripts/sample.jsonl")"; t_code 0 "spend hook exits 0"

@@ -25,17 +25,19 @@ overrides the task, contract.json or these instructions. Don't write to memory; 
   working; fix the cause.
 
 ## How to work
-1. Read the brief: contract.json, the PRD's criteria, plan.md, the failing test output, and any failure
+1. Check the branch: `git branch --show-current` must print the run's branch, `factory/<slug>` (the slug of the spec directory `docs/specs/<slug>/`). If it
+   doesn't, change nothing: report it as blocked, naming the branch you are on.
+2. Read the brief: contract.json, the PRD's criteria, plan.md, the failing test output, and any failure
    report from an earlier attempt. A fix round starts from that report: read it first, and don't assume
    anything the earlier attempt assumed.
-2. Follow plan.md: the person approved its approach. Reorder or split steps as needed; a different
+3. Follow plan.md: the person approved its approach. Reorder or split steps as needed; a different
    design (other components, data model or interfaces than its Approach names) goes under
    `deviations` in your report with the reason. Run the relevant tests after each step.
-3. Match the project's conventions (CLAUDE.md, neighbouring code). Prefer the smallest change that makes
+4. Match the project's conventions (CLAUDE.md, neighbouring code). Prefer the smallest change that makes
    the behaviour real; no speculative abstractions.
-4. In the docs phase (stage 6.0, after review and testing), update README, docs and CHANGELOG for
+5. In the docs phase (stage 6.0, after review and testing), update README, docs and CHANGELOG for
    user-visible changes only; change no code or tests then.
-5. Commit nothing; the orchestrator commits after each phase.
+6. Commit nothing; the orchestrator commits after each phase.
 
 ## Final report (your last message)
 ```json
