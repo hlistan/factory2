@@ -9,7 +9,8 @@
 #                       snapshot; failures known at the baseline are allowed). Records ship.verified.
 #   ship.sh merge       HEAD must be the verified commit and pushed. With a PR, takes it out of draft and
 #                       waits for its checks on GitHub (pr.sh ready): any failed, no merge. Runs ship.merge, then records the merged
-#                       commit on origin/<default_branch> as ship.merged and refreshes the issue's label.
+#                       commit on origin/<default_branch> as ship.merged. The issue closes when this was its
+#                       last open PR (issue-flow.sh merged).
 #   ship.sh deploy      runs ship.deploy (FACTORY_DEPLOY_SHA = the merged commit). Stage 7, evidence approved,
 #                       merged. An empty ship.deploy is skipped (exit 0) and recorded as skipped.
 #   ship.sh smoke       runs ship.smoke against the deployment; output in <run>/smoke.log. Empty: skipped.
@@ -134,7 +135,9 @@ case "$cmd" in
     G fetch -q origin "$default" || die "couldn't fetch origin/$default after the merge"
     merged="$(G rev-parse "origin/$default")"
     state_update '.ship.merged = {sha: $s, at: $at}' --arg s "$merged" --arg at "$(now_utc)"
-    bash "$FACTORY_SCRIPTS/pr.sh" labels >/dev/null 2>&1 || true   # the issue's "merged" label, best effort
+    if [ -n "$(state_get '.pr // empty')" ]; then   # best effort: the issue is done once its last PR merged
+      (cd "$root" && bash "$FACTORY_SCRIPTS/issue-flow.sh" merged "$(state_get .pr)") || echo "factory: issue-flow.sh merged failed; run it by hand" >&2
+    fi
     echo "factory: merged; origin/$default is at ${merged:0:12}"
     ;;
 

@@ -4,7 +4,8 @@
 # plugin. Needs bash, git, jq and python3; gh for GitHub issues.
 #   monitor.sh --once [slug]   runs every monitor.checks command. A check that fails, and didn't fail at the
 #                       deploy baseline, is an anomaly: the incident is FILED FIRST (monitor.report:
-#                       github-issue, the default, labelled factory-incident; command: monitor.issue_cmd with
+#                       github-issue, the default: titled "Incident: ..." and labelled todo, the issue
+#                       flow's ready-to-build status (skills/issue-flow); command: monitor.issue_cmd with
 #                       the title as $1 and the markdown body on stdin, printing the reference; file:
 #                       .factory/incidents/I-<n>.md), then ship.rollback runs only if monitor.auto_rollback
 #                       is true. A check that already has an open incident gets no second one.
@@ -69,8 +70,8 @@ open_incident() { # <check name>: prints the reference of an open incident for i
   case "$report" in
     github-issue)
       command -v gh >/dev/null 2>&1 || return 0
-      (cd "$root" && gh issue list --label factory-incident --state open --limit 100 --json number,title </dev/null 2>/dev/null) |
-        jq -r --arg n "[$name]" '.[] | select(.title | contains($n)) | "#\(.number)"' | head -n 1 ;;
+      (cd "$root" && gh issue list --state open --limit 300 --json number,title </dev/null 2>/dev/null) |
+        jq -r --arg n "[$name]" '.[] | select((.title | startswith("Incident: ")) and (.title | contains($n))) | "#\(.number)"' | head -n 1 ;;
     file)
       for f in "$root"/.factory/incidents/I-*.md; do
         [ -f "$f" ] || continue
@@ -85,8 +86,8 @@ file_incident() { # <title> <body file> <check name or ""> : prints the referenc
   case "$report" in
     github-issue)
       command -v gh >/dev/null 2>&1 || { echo "factory: monitor.report is github-issue but gh is not installed" >&2; return 2; }
-      (cd "$root" && gh label create factory-incident --color d73a4a --description "filed by factory2 monitoring" --force >/dev/null 2>&1) || true
-      ref="$(cd "$root" && gh issue create --label factory-incident --title "$title" --body-file "$body" | tail -n 1)" || return 1 ;;
+      (cd "$root" && gh label create todo --color ededed --description "Ready to be built: a person wants it" >/dev/null 2>&1) || true
+      ref="$(cd "$root" && gh issue create --label todo --title "Incident: $title" --body-file "$body" | tail -n 1)" || return 1 ;;
     command)
       local ic; ic="$(cfg '.monitor.issue_cmd')"
       [ -n "$ic" ] || { echo "factory: monitor.report is command but monitor.issue_cmd is empty" >&2; return 2; }

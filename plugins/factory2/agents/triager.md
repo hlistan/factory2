@@ -24,7 +24,7 @@ When a comment holds several issues, split it. When you can't tell, choose the m
 (spec-gap over defect over cosmetic) and say why.
 
 ## Incidents (stage 7 smoke, stage 8 monitoring)
-The incident is already an issue (a GitHub issue labelled `factory-incident`, or
+The incident is already an issue (a GitHub issue titled `Incident: …`, or
 `.factory/incidents/I-n.md`), filed with the failing check, its output, the deploy marker (SHA and time)
 and the run. You don't fix it and don't route it into the old run: it will be fixed by a new bugfix run
 whose planner reads the issue, including your comment. So:

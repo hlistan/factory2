@@ -50,17 +50,17 @@
    Edit/Write to a check-defining file the Exceptions name; dependencies are installed with the package
    manager) → commit → `state.sh freeze` again. Ask the user when unsure.
 7. Keep every `deviations` entry from the implementers' reports (the person approved plan.md's
-   approach): they go to the spec reviewer at stage 5 and into the 4d note.
+   approach): they go to the spec reviewer at stage 5 and into the 4c note.
 
-## 4c Docs (`phase docs`)
-Same implementer spawn (or a fresh one, `state.sh role implementer`) to update README, docs and CHANGELOG for the behaviour.
-Re-run the fast checks.
+Docs (README, docs, CHANGELOG) are not written here: they describe the tested behaviour, at stage 6.0.
 
-## 4d Draft PR
+## 4c Draft PR
 Commit and `git push -u origin factory/<slug>`. A PR run (`bash $S/pr.sh enabled`) already has its draft
 PR: `bash $S/pr.sh body` refreshes the description, and `bash $S/pr.sh publish note` says that the tests
 are frozen and the code is in, and lists each deviation from the approved plan with its reason (or says
 the plan was followed). Otherwise run `ship.pr_open` from the config (`bash $S/state.sh config
 .ship.pr_open`), and record the PR number: `bash $S/state.sh set '.pr = $n' --argjson n <number>`. A project
-with no remote or an empty `pr_open` skips this; say so once. **Bugfix run:** (a PR run's description already has it) add `Fixes #<n>` (or the
-issue URL) to the PR description, so merging closes the issue, and comment the PR link on the issue.
+with no remote or an empty `pr_open` skips this; say so once. On a PR run the description already
+names the issue (`Part of #<n>`): the issue closes when its last PR merges (`ship.sh merge`). A terminal
+**bugfix run** with a GitHub issue: add `Fixes #<n>` to the PR description and comment the PR link on the
+issue.

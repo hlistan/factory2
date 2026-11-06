@@ -11,7 +11,7 @@ allowed-tools: Bash(bash ${CLAUDE_PLUGIN_ROOT}/scripts/*) Read Glob Agent
 
 1. Run `bash $S/monitor.sh --once $ARGUMENTS`. It runs `monitor.checks` and compares them with the
    deploy baseline. On an anomaly it **files an issue first** (`monitor.report`: a GitHub issue labelled
-   `factory-incident`, the `monitor.issue_cmd` tracker, or `.factory/incidents/I-n.md`), then rolls back
+   `Incident: …` and labelled `todo`, the `monitor.issue_cmd` tracker, or `.factory/incidents/I-n.md`), then rolls back
    only when `monitor.auto_rollback` is true.
 2. Exit 0: reply with one line (healthy, time, checks run) and nothing else, so a /loop stays quiet.
 3. Exit 1: an issue was filed (its reference is in the output). Read it, then spawn `factory2:triager`

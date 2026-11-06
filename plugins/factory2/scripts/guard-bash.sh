@@ -10,8 +10,9 @@
 #     unless the active factory run is in stage 7 with the evidence approval recorded (deploy), or in
 #     stage 7-8 (rollback). Deploys go through /factory2:run; neither needs its own approval.
 #   - while the active run is tracked on a PR (review.via: pr): posting or editing comments and reviews
-#     on that PR or on the issues the run works on (gh pr comment, gh pr review, gh issue comment, writes
-#     through gh api), and changing their factory2 labels.
+#     on that PR or on the run's issue (gh pr comment, gh pr review, gh issue comment, writes through
+#     gh api), and changing the issue-flow labels (todo, planning, building, testing, documenting,
+#     blocked): only scripts/issue-flow.sh sets them.
 #     Corrections, approvals and answers there come only from the person; factory posts through
 #     scripts/pr.sh, which marks its comments as its own.
 # It splits the command the way a shell does (quotes, escapes, here-documents, `;`, `&&`, `|`, subshells,
@@ -218,7 +219,8 @@ function check(w, nw, depth,   i, t, prog, j, s, husky) {
     block(prog " stops every process with that name, the user's own included: stop the processes you started by their pid (kill <pid>)")
 }
 
-function ours(x,   n, a, j) { # x names the run's PR or one of the issues it works on
+function flowlabel(x) { sub(/^--(add|remove)-label=/, "", x); return x ~ /(^|,)(todo|planning|building|testing|documenting|blocked)(,|$)/ }
+function ours(x,   n, a, j) { # x names the run's PR or its issue
   sub(/^#/, "", x)
   if (x == pr || x ~ ("/(pull|issues)/" pr "$")) return 1
   n = split(issues, a, " ")
@@ -234,8 +236,8 @@ function check_gh(w, nw, i,   g, k, t, write, path, body, j, n, a) {
   if (g == "pr" && i < nw && (w[i] == "comment" || w[i] == "review"))
     block("gh pr " w[i] ": comments and reviews on the run's PR come from the person (corrections, /approve); factory posts through scripts/pr.sh (publish note)")
   if ((g == "pr" || g == "issue") && i < nw && w[i] == "edit") {
-    for (k = i + 1; k < nw; k++) if ((w[k] ~ /^--(add|remove)-label/ && (w[k] ~ /factory2/ || (k + 1 < nw && w[k + 1] ~ /factory2/))))
-      block("factory2 labels on the run's PR say which approvals wait and which were given; only scripts/pr.sh sets them")
+    for (k = i + 1; k < nw; k++) if (w[k] ~ /^--(add|remove)-label/ && (flowlabel(w[k]) || (k + 1 < nw && flowlabel(w[k + 1]))))
+      block("the issue-flow labels (todo, planning, building, testing, documenting, blocked) say where each feature is and what waits for a person; only scripts/issue-flow.sh sets them (through state.sh and pr.sh)")
   }
   if (g == "issue" && i < nw && w[i] == "comment") {
     for (k = i + 1; k < nw; k++) if (ours(w[k]))
@@ -254,10 +256,10 @@ function check_gh(w, nw, i,   g, k, t, write, path, body, j, n, a) {
     if (t !~ /^-/ && path == "") path = t
   }
   if (!write) return
-  if (path ~ ("(^|/)issues/" pr "/labels")) block("factory2 labels on the run's PR are set only by scripts/pr.sh")
+  if (path ~ ("(^|/)issues/" pr "/labels")) block("the labels of the run's PR are set only by scripts/issue-flow.sh")
   n = split(issues, a, " ")
   for (j = 1; j <= n; j++) {
-    if (path ~ ("(^|/)issues/" a[j] "/labels")) block("factory2 labels on the run's issue #" a[j] " are set only by scripts/pr.sh")
+    if (path ~ ("(^|/)issues/" a[j] "/labels")) block("the labels of the run's issue #" a[j] " are set only by scripts/issue-flow.sh")
     if (path ~ ("(^|/)issues/" a[j] "/comments")) block("writing comments on the run's issue #" a[j] " through gh api: the person replies there; factory posts through scripts/pr.sh")
   }
   if (path ~ /(^|\/)pulls\/[0-9]+\/(reviews|comments)/ || path ~ /(^|\/)(issues|pulls)\/comments\/[0-9]+/ || path ~ ("(^|/)issues/" pr "/comments") \
@@ -362,8 +364,8 @@ pr=""; issues=""
 slug="$(factory_active_slug)"
 if [ -n "$slug" ] && [ "$(state_get '.review_via // empty' "$slug" 2>/dev/null)" = pr ]; then
   pr="$(state_get '.pr // empty' "$slug" 2>/dev/null | tr -cd '0-9')"
-  # the issues the run works on (same repository): where the person approves and answers
-  issues="$(state_get '[.issue // empty, (.linked_issues // [])[]] | map(tostring | ltrimstr("#") | select(test("^[0-9]+$"))) | join(" ")' "$slug" 2>/dev/null)"
+  # the run's issue (same repository): where the person approves and answers
+  issues="$(state_get '.issue // empty | tostring | ltrimstr("#") | sub(".*/issues/"; "") | select(test("^[0-9]+$"))' "$slug" 2>/dev/null)"
 fi
 reason="$(printf '%s' "$command" | awk -v home="$h" -v current="$current" -v extra="$default_branch" -v pr="$pr" -v issues="$issues" "$program")"
 if [ -n "$reason" ]; then

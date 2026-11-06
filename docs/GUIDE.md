@@ -18,16 +18,16 @@ flowchart TD
     S1 --> S2{2 PRD review<br/>prd-reviewer, then YOU on the PR}
     S2 -- changes --> S3[3 Fix PRD<br/>planner revises, lessons recorded]
     S3 --> S2
-    S2 -- approve --> S4[4 Implement<br/>tests first, freeze, code, docs]
+    S2 -- approve --> S4[4 Implement<br/>tests first, freeze, code]
     S4 --> S5[5 Review and fix<br/>4 lenses, challenger, QA in a browser]
-    S5 --> S6{6 Evidence<br/>screenshots and video, then YOU}
+    S5 --> S6{6 Docs and evidence<br/>docs, screenshots and video, then YOU}
     S6 -- spec gap --> S2
     S6 -- defect --> S5
     S6 -- cosmetic --> S6
     S6 -- approve --> S7[7 Merge and deploy<br/>smoke test]
     S7 --> S8[8 Monitor]
     S7 -- smoke fails --> I
-    S8 -- anomaly --> I[Issue filed first<br/>factory-incident]
+    S8 -- anomaly --> I[Issue filed first<br/>Incident: …, todo]
     I --> B([New bugfix run:<br/>/factory2:run --issue ref])
     B -.-> S1
 ```
@@ -43,7 +43,7 @@ Three rules hold the whole thing together:
 2. **Tests come before code, and then they're frozen.** The tests and the files that define "the checks"
    (`package.json`, runner and lint configs, CI, `.factory/config.yaml`) are hashed before any product
    code exists. The implementer can't change them to make the work pass.
-3. **You approve two things, both on the PR:** the plan (stage 2: what will be built and how, before
+3. **You approve two things, both asked on the feature's issue:** the plan (stage 2: what will be built and how, before
    any code) and the evidence (stage 6: what was built, before merge). Merge, deploy and any rollback
    follow without asking. Each approval is tied to a commit, and going back a stage cancels it.
 
@@ -134,6 +134,7 @@ then on, everything for the run lives in three places:
 
 | Where | What | In git? |
 |---|---|---|
+| The run's issue (created from your request when you gave none) | The feature's only source of truth: its status (`planning` → `building` → `testing` → `documenting` → closed, `blocked` while you are needed), and every request for you | On GitHub |
 | The run's PR (a draft while the change is in progress) | Every planning step as a comment; the artifacts, approvals and review ledger in its description | On GitHub |
 | `docs/specs/<slug>/` | `request.md`, `prd.md`, `contract.json`, `plan.md`, `reviews/`, `feedback/` | Committed |
 | `.factory/history/<slug>.json` | The run's measurement record and lesson lines | Committed |
@@ -189,8 +190,7 @@ each run gets its own branch and dev-server port.
    - **Correct**: comment on the issue, or on the PR, in the conversation or inline on `prd.md` or `plan.md`. Each
      comment is saved word for word, with its author, link and line, to
      `docs/specs/<slug>/feedback/prd-<n>.md`, and goes to stage 3. factory replies to say it received them.
-   - **Approve**: reply with a comment whose first line is the approval reply (`/approve` unless
-     `issues.commands.approve` says otherwise). Anything after that line is
+   - **Approve**: reply with a comment whose first line is `/approve`. Anything after that line is
      saved as notes for the run. The approval holds for the named commit only: if anything was pushed
      after it, or a correction arrives in the same batch, factory says so and asks again. If the
      reviewer still has blocking findings, the request says so and your `/approve` is recorded as an
@@ -230,8 +230,7 @@ After `limits.prd_rounds` rounds (3 by default), the orchestrator stops and asks
 | 4b Code | `implementer` at **low** effort. When it tries to stop, a hook re-verifies the freeze and runs the fast checks; it can't finish while they fail (up to 3 retries). | `subagent-stop.sh` |
 | After 4b | Verifies the freeze, runs all checks, and syncs `passes` in `contract.json` from the JUnit reports | `verify-freeze`, `run-checks.sh`, `contract-sync` |
 | Retry | On failure: a **fresh** implementer at **high**, briefed with the failure report; up to 2 retries, then you | — |
-| 4c Docs | README, docs, CHANGELOG | Fast checks |
-| 4d PR | Push and refresh the PR description (a terminal run opens the draft PR here with `ship.pr_open`) | — |
+| 4c PR | Push and refresh the PR description (a terminal run opens the draft PR here with `ship.pr_open`) | — |
 
 A criterion counts as passing only when at least one test names it and every test that names it passed.
 
@@ -265,8 +264,11 @@ If the implementer reports that a frozen test is wrong, or that it needs a new d
 
 Advisory findings are not fixed automatically; you see them at the stage 6 gate.
 
-### Stage 6: evidence (⏸ your gate)
+### Stage 6: docs and evidence (⏸ your gate)
 
+0. **Docs.** Now that the behaviour is reviewed and tested, the implementer updates README, docs and
+   CHANGELOG for it, and the fast checks (your docs gates included) must pass. The issue is
+   `documenting` from here to the merge. After a fix loop the docs are updated again.
 1. The `@AC-n` e2e tests are the demo script. They run under `playwright.demo.config.ts` (which
    `/factory2:init` copies; it reuses your `playwright.config.ts`), once per `evidence.viewports` size
    (1440, 768 and 390 pixels wide by default). Each test records a video with its title, steps and
@@ -277,7 +279,7 @@ Advisory findings are not fixed automatically; you see them at the stage 6 gate.
    shows the text, its level, pass or fail, its demo tests, and a card per viewport with the video and
    the screenshot. It also lists the advisory findings, spend by stage and the PR link. The folder is
    self-contained; `evidence.publish` can upload it and put the link in the approval request.
-3. **You** approve or comment on the PR: factory posts an approval request with the pack's link
+3. **You** approve or comment on the issue (or the PR): factory posts an approval request with the pack's link
    (when `evidence.publish` is set), the criteria table and the advisory findings. Reply `/approve`, or
    comment. The `triager` sorts each comment:
 
@@ -307,9 +309,10 @@ Advisory findings are not fixed automatically; you see them at the stage 6 gate.
    already merged, so the run itself doesn't go back.
 6. Records the deploy marker and the monitoring baseline: which `monitor.checks` pass right now. A
    check that already fails at deploy time isn't reported as an anomaly while it keeps failing.
-7. **For a bugfix run:** the postmortem (§6.2) and lesson lines for the agents of the run that shipped
-   the bug are written before the merge (step 2); after the deploy it comments the deploy on the issue
-   (the merge closed it).
+7. The merge closes the issue when it was the issue's last open PR: closed is done. With other PRs
+   still open for it, it stays open and shows their status. The deploy is noted on the issue.
+8. **For a bugfix run:** the postmortem (§6.2) and lesson lines for the agents of the run that shipped
+   the bug are written before the merge (step 2).
 
 ### Stage 8: monitor
 
@@ -322,7 +325,7 @@ See §4.2.
 | Continue a paused run | `/factory2:run <slug>` (a new session also tells you which run is active) |
 | Fix an issue (an incident or any bug report) | `/factory2:run --issue <ref>`. Use `claude --worktree` while another run holds the checkout (for example one still being monitored). |
 | Restart from a stage | `/factory2:run <slug> --from <n>`. Going back cancels approvals given at that stage or later. |
-| Abandon a run | Stop at any gate, run `bash <plugin>/scripts/state.sh end` to release the checkout, then delete `.factory/runs/<slug>/` and the branch if you don't need them. The committed spec and history stay. |
+| Abandon a run | Stop at any gate, run `bash <plugin>/scripts/state.sh end --stop`: it closes the PR, puts the issue back to `todo` (unless another PR works on it) and releases the checkout. Then delete `.factory/runs/<slug>/` and the branch if you don't need them. The committed spec and history stay. |
 
 ---
 
@@ -351,7 +354,7 @@ On an anomaly it **files an issue first**, before anything else (`monitor.report
 
 | `monitor.report` | Where the issue goes |
 |---|---|
-| `github-issue` (default) | A GitHub issue labelled `factory-incident`, with the failing check, its output, the deploy commit, the run and the PR |
+| `github-issue` (default) | A GitHub issue titled `Incident: …` and labelled `todo`, with the failing check, its output, the deploy commit, the run and the PR |
 | `command` | Your tracker (Jira, Linear, …) through `monitor.issue_cmd`, which gets the title as `$1` and the body on stdin, and prints the issue key |
 | `file` | `.factory/incidents/I-<n>.md`, for projects without a tracker |
 
@@ -367,7 +370,7 @@ Choose a scheduler with `monitor.scheduler`:
 |---|---|---|---|
 | `local-loop` | `/loop 15m /factory2:monitor <slug>` | The hours right after a deploy | Runs only while the session is idle; expires after 7 days; doesn't catch up on missed runs |
 | `launchd` | Runs `.factory/bin/monitor.sh` and shows a macOS notification | A dev machine that stays on | No triage until your next session |
-| `github-actions` | Cron workflow, which opens a `factory-incident` issue | Always on | Detects and files only; no Claude in CI, so no Anthropic credential is needed |
+| `github-actions` | Cron workflow, which opens an `Incident: …` issue | Always on | Detects and files only; no Claude in CI, so no Anthropic credential is needed |
 
 **When an incident appears:**
 
@@ -398,14 +401,37 @@ started yet.
 
 ### 5.1 Your gates
 
-**You decide what is built; the PR is how.** So everything that needs you is asked on the run's issue
-(and every other issue its PR names, `state.sh link-issue`), or on the PR when the run has no issue:
-the two approval requests, questions when a limit runs out (`pr.sh ask`), and notices (`pr.sh notify`).
-Each request carries what you need to decide inline and says exactly what to reply, with examples:
+**The issue is what is built; the PR is how.** Every run works on one GitHub issue, the feature's only
+source of truth: `/factory2:run --issue <n>` uses yours, and a plain request becomes a new issue. A PR
+contributes to exactly one issue (`Part of #<n>` at the top of its description); an issue can have
+several PRs. The flow (the `issue-flow` skill, `scripts/issue-flow.sh`) uses six labels and nothing else:
+
+| On | Label | Means |
+|---|---|---|
+| Issue | `todo` | Wanted, ready to be built. You set it; monitoring sets it on an incident |
+| Issue | `planning` | Stages 1–3: the PRD, criteria and plan, and your approval of them |
+| Issue | `building` | Stage 4: tests first, then the code |
+| Issue | `testing` | Stage 5: review, QA in a browser, fixes |
+| Issue | `documenting` | Stages 6–7: docs, the evidence and your approval, the merge |
+| Issue | closed | Done: every PR for it is merged |
+| Issue, PR | `blocked` | A person must act: the latest comment on the issue says what |
+| PR | `building` | Work in progress (and a draft) |
+
+An issue with several open PRs shows the earliest status among them, and `blocked` while any of them is.
+A run going back (a defect found at stage 6) moves the issue back too. factory changes only these labels;
+the issue's other labels (type, priority) stay.
+
+**Everything that needs you is a comment on the issue that names the PR**: the two approval requests,
+questions when a limit runs out (`pr.sh ask`), and notices (`pr.sh notify`). The details stay on the PR
+(the plan, the evidence), linked from the comment. Each request says exactly what to reply, with
+examples:
 
 ```text
+### 🛑 Blocked: PR #93 needs your approval of the plan
+Open PR #93 to read what will be built (the acceptance criteria) and how (the plan).
+
 #### What to do
-Reply on this issue with one of:
+Reply on this issue (or on PR #93) with one of:
 - Approve: a comment whose first line is exactly
     /approve
 - Ask for changes: write each change on its own line, naming the criterion it concerns, e.g.
@@ -413,24 +439,15 @@ Reply on this issue with one of:
 - Stop the run: say so in the Claude Code session running it.
 ```
 
-The approval reply is `issues.commands.approve` (default `/approve`; pick another word, such as
-`/accept`, when your own automation already reads `/approve`). A comment without it is a change request,
-except another slash command (your issue flow's `/verified` and the like), which factory leaves alone.
-If change requests arrive together with an approval, the changes win and factory asks again. factory
-can't approve for you: `state.sh approve` refuses an approval without your comment, and the guard
-blocks Claude from posting comments, reviews or `factory2` labels on the PR or the run's issues except
-through `pr.sh`.
-
-**With your own issue flow** (`issues.flow`): when your issues already go through a plan gate (the plan
-written into the issue body, submitted, approved by the owner, as a label), the plan gate is yours and
-factory doesn't add a second one. If the idea isn't accepted yet, factory asks you on the issue to accept
-it (`accept_idea`); then it writes the plan into the issue's body (`issue-plan.md`, in the format
-`plan_doc` describes), posts `submit`, and continues once the issue carries an `approved` label. Your
-flow's `changes` command is read as a change request.
+A comment that isn't `/approve` is a change request, except another slash command (`/verified` and the
+like, for other automation), which factory leaves alone. If change requests arrive together with an
+approval, the changes win and factory asks again. factory can't approve for you: `state.sh approve`
+refuses an approval without your comment, and the guard blocks Claude from posting comments or reviews
+on the PR or the issue, or setting the flow's labels, except through `pr.sh` and `issue-flow.sh`.
 
 | Gate | You are approving | Holds for | Cancelled when |
 |---|---|---|---|
-| Plan (`prd`, stage 2) | What will be built (the criteria) and how (`plan.md`), shown in the request | The pushed branch head the request names | The run goes back to stage 2 or earlier, or anything is pushed before you approve |
+| Plan (`prd`, stage 2) | What will be built (the criteria) and how (`plan.md`), on the PR | The pushed branch head the request names | The run goes back to stage 2 or earlier, or anything is pushed before you approve |
 | Evidence (stage 6) | What was built, as shown in the review pack; this also lets merge and deploy run | The pushed branch head | It goes back to stage 6 or earlier, or a push before you approve, or a commit other than a main merge or the memory fold lands after it |
 
 Deploy and rollback are not gates. Stage 7 deploys after the merge, and a rollback runs when the smoke
@@ -439,43 +456,13 @@ with the evidence approved, and the rollback command outside stage 7–8.
 
 Each is recorded in `approvals.<gate>` with the commit, your login and the comment's link.
 
-**Finding what waits for you.** Status follows the same split, as in most projects that label by
-automation: scoped labels, one per category, moved one step at a time, with an `awaiting-*` label
-saying that a person must act. The run's labels are on its issues: the issue is the feature, and
-its PR is only a change for it (an issue can have several), so the PR carries no factory2 labels (any
-left from before are removed). The PR's own status is GitHub's: a draft while the change is in
-progress, ready for review once it can merge and its checks are green. A run without an issue labels
-its PR instead. The labels:
-
-| Label | Means |
-|---|---|
-| `factory2` | An issue (or PR) a factory2 run works on |
-| `factory2:awaiting-approval` | An approval request waits for your reply (any gate) |
-| `factory2:awaiting-input` | A question waits for your answer (a limit ran out, a conflict) |
-| `factory2:awaiting-<gate>` | The same, per gate: `prd` (the plan), `evidence` |
-| `factory2:approved-<gate>` | That approval is held; removed if the run goes back past the gate |
-| `factory2:stage-<n>-<name>` | The stage the run is in: `1-plan`, `2-prd-review`, `3-prd-fix`, `4-implement`, `5-review`, `6-evidence`, `7-ship`, `8-monitor`. Exactly one at a time |
-
-`gh issue list --search 'label:factory2:awaiting-approval,factory2:awaiting-input'` shows every run
-from an issue waiting for someone (an approval or a question),
-and `gh pr list` with the same label the runs without one. The PR description also links the waiting request.
-
-**Following a feature on its issue.** A run started from a GitHub issue (`/factory2:run --issue <n>`,
-for a bug or a feature) puts the labels above on that issue, and moves the stage label as the run
-moves, on a terminal run too. `gh issue list --label factory2` shows which issues are in
-development and where each one stands; `--label factory2:stage-6-evidence` shows the ones waiting for
-evidence review. factory changes only its own `factory2` labels; the issue's other labels stay. The
-stage-8 label stays while production is monitored. If your project already has workflow labels
-(`status:in-review`, `stage:5-in-development`), set `issues.stage_labels` to map factory's stages (and
-`merged`) onto them, with `issues.stage_label_prefix` naming the set: the issue then carries only your
-label, and factory2 adds none of its own. If an automation of yours moves those labels, set
-`issues.labels: false`: factory then labels neither the issue (it would fight the automation) nor its
-PR. `issues.link_keyword` is the word the PR body names the issue with: `Fixes` by default, which
-closes it at the merge, or your flow's own word, such as `Implements`.
+**Finding what waits for you**: `gh issue list --label blocked`. What is ready to start:
+`gh issue list --label todo` (`/factory2:run` with no arguments lists them too). Where everything else
+is: `--label planning`, `building`, `testing`, `documenting`.
 
 Silence or an earlier approval never counts. Comments are always saved word for word under
 `docs/specs/<slug>/feedback/`. With `review.via: terminal` (or without gh, its login or an `origin`
-remote) the same gates are asked in Claude Code instead, and there are no PR labels.
+remote) the same gates are asked in Claude Code instead, and nothing is labelled.
 
 **The PRD gate is the cheapest place to steer.** Everything downstream is judged against the acceptance
 criteria, so a missing state ("what does the empty list look like?") is far cheaper to add here than at
@@ -489,7 +476,7 @@ stage 6.
 | Read-only roles | Reviewers, QA, challenger and triager changing files | A hook blocks their edits. The working tree is hashed before and after each read-only batch; a change is stashed and logged as an incident. |
 | Spec and state protection | Agents editing the PRD, the run state, the history or Claude Code's settings during a run | Hook |
 | Agent memory | Agents writing their own memory | Hook. Only the harness writes it, at stage 7. |
-| Bash guard | Force-push or deleting a protected branch, skipping git hooks (`--no-verify`, `HUSKY=0`), `rm -rf` of `/` or home, `pkill`/`killall`, deploy outside stage 7 with the evidence approved, rollback outside stage 7–8, and, while a run is tracked on a PR, posting or editing comments and reviews there or changing its `factory2` labels (`gh pr comment`, `gh pr review`, `gh pr edit --add-label`, `gh api` writes) | Hook, always on (not only during a run); sees through quoting, `bash -c`, `eval`, `command`, `exec` and `xargs` |
+| Bash guard | Force-push or deleting a protected branch, skipping git hooks (`--no-verify`, `HUSKY=0`), `rm -rf` of `/` or home, `pkill`/`killall`, deploy outside stage 7 with the evidence approved, rollback outside stage 7–8, and, while a run is tracked on a PR, posting or editing comments and reviews on its PR or issue, or changing the issue flow's labels (`gh pr comment`, `gh pr review`, `gh issue comment`, `gh pr edit --add-label`, `gh api` writes) | Hook, always on (not only during a run); sees through quoting, `bash -c`, `eval`, `command`, `exec` and `xargs` |
 | Fail closed | A guard crashing or hanging and letting the action through | `gate.sh` turns a crash or timeout into a block inside factory2 projects |
 | Fresh retries | A retry inheriting the failed attempt's wrong assumptions | Each retry is a new agent, briefed with the failure report |
 
@@ -503,7 +490,7 @@ The commits are labelled by sub-phase, so the PR reads in order:
 
 1. `1 plan`, `3 prd round <n>`: the spec as approved.
 2. `4a tests`: what "done" means. Check that the tests assert behaviour, not implementation.
-3. Code and `4c docs`.
+3. Code, then `6.0 docs`.
 4. Fix-loop commits: each starts with a failing test.
 5. `fold memory`: the lesson lines going into agent memory. **Read these**; they shape future runs.
 6. `.factory/history/<slug>.json`: rounds, retries, escalations, issues, spend.
@@ -518,13 +505,8 @@ The commits are labelled by sub-phase, so the PR reads in order:
 | `limits.review_rounds` | 2 | Asks you, with the open findings |
 | `limits.evidence_rounds` | 3 | Asks you |
 | `limits.budget_usd` | 60 | Pauses at the next gate |
-| `review.via` | `pr` | `pr`: the draft PR opens at the start, and every gate is held there (comments, `/approve`; the labels go on the run's issue when it has one). `terminal`: gates in Claude Code |
+| `review.via` | `pr` | `pr`: the run's issue and its draft PR open at the start, and every gate is asked on the issue (`/approve`). `terminal`: gates in Claude Code |
 | `ship.pr_ready`, `ship.checks_timeout` | `gh pr ready`, `3600` | At the merge, how the PR leaves draft and how long to wait for its checks; the PR is a draft until then and again whenever the run goes back before stage 7 |
-| `issues.commands.approve` | `/approve` | The reply that approves a gate, shown in every request |
-| `issues.flow.*` | empty | Your own issue flow approves the plan: `ready_for_plan`, `accept_idea`, `submit`, `approve`, `changes`, `approved`, `plan_doc` (5.1) |
-| `issues.labels` | `true` | `false`: factory labels no issue (your own automation does), nor its PR |
-| `issues.link_keyword` | `Fixes` | How the PR body names the run's issue (`Closes`, or your flow's word, such as `Implements`) |
-| `issues.stage_labels`, `issues.stage_label_prefix` | `{}`, `""` | Map factory's stages (1-8, `merged`) onto your own issue labels instead of `factory2:stage-*` |
 | `review.reviewers` | `[]` | GitHub logins whose PR comments count; empty means the repository's owners, members and collaborators |
 
 Each escalation is recorded in history, so `/factory2:stats` can show where runs get stuck.
@@ -652,8 +634,10 @@ agent prompt changes. The seed case, a PRD with no empty-state criterion, scored
 |---|---|
 | `/factory2:init` | Once per project, and again after upgrading factory2 |
 | `/factory2:run "<feature>"` | Start a run |
-| `/factory2:run --issue <ref>` | Start a bugfix run from an issue |
+| `/factory2:run --issue <ref>` | Start a run from an issue: a bugfix run for a defect, a feature run for a request |
+| `/factory2:run` | List the issues labelled `todo`, ready to build |
 | `/factory2:run <slug> [--from <n>]` | Resume, or restart from a stage |
+| `/factory2:issue-flow [command]` | The issue flow on its own (`setup`, `show <issue>`, `start`, `status`, `block`, `unblock`, `merged`, `stop`) |
 | `/factory2:status [slug]` | One-screen state of a run; read-only |
 | `/factory2:monitor <slug>` | One round of production checks; pair with `/loop` |
 | `/factory2:stats [--since <date>] [--export-evals]` | Measurements across runs |

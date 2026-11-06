@@ -30,7 +30,8 @@ is gone and only git-ignored state changes.
    this run's calibration lines); every check green. Exit 1 names each commit it doesn't cover: the
    evidence no longer matches, back to stage 6.
 6. `git push`, then `bash $S/ship.sh merge`. With a PR it takes it out of draft and waits for its checks
-   on GitHub, then runs `ship.merge` and records the merged commit. A failed check (exit 1, the PR is a
+   on GitHub, then runs `ship.merge` and records the merged commit. The issue closes (done) when this was
+   its last open PR (`issue-flow.sh merged`); otherwise it stays open for the others. A failed check (exit 1, the PR is a
    draft again) is a defect: stage 5's fix loop with the failing check. Checks still running past
    `ship.checks_timeout`: run it again.
 7. `bash $S/ship.sh deploy` (skipped, exit 0, when `ship.deploy` is empty), then `bash $S/ship.sh smoke`.
@@ -44,9 +45,9 @@ is gone and only git-ignored state changes.
    3. `bash $S/ship.sh mark`, then offer `/factory2:run --issue <ref>` for the fix and go to stage 8.
 9. Success: `bash $S/ship.sh mark` records the deploy commit, time and monitoring baseline (which
    `monitor.checks` pass right now; a check already failing isn't an anomaly while it keeps failing).
-10. **Bugfix run**: close the issue. The PR says `Fixes #<n>` (stage 4d), so the merge closes a GitHub
-    issue; tell it the deploy commit and the smoke result with `bash $S/pr.sh notify` (a terminal run:
-    `gh issue comment`). A local issue file gets `status: fixed`, the PR and the
+10. Tell the issue the deploy commit and the smoke result with `bash $S/pr.sh notify` (a terminal
+    bugfix run: `gh issue comment`; its `Fixes #<n>` closed the issue at the merge). A local incident file
+    (`state.sh get .incident_file`, or `.issue` on a terminal run) gets `status: fixed`, the PR and the
     deploy commit.
 11. Go to stage 8.
 
@@ -61,7 +62,7 @@ is gone and only git-ignored state changes.
    - `local-loop`: suggest `/loop <interval> /factory2:monitor <slug>` (runs only while this session is
      idle, expires after 7 days).
    - `launchd` or `github-actions`: `/factory2:init` installs the template; confirm it is in place.
-4. **Anomaly.** `monitor.sh` has already filed the issue (labelled `factory-incident`, with the failing
+4. **Anomaly.** `monitor.sh` has already filed the issue (titled `Incident: …` and labelled `todo`, with the failing
    check, its output, the deploy SHA, the run slug and the PR) before anything else, and rolled back only
    if `monitor.auto_rollback` is true. Then, in a session (`/factory2:monitor`, or the incident pickup in
    `/factory2:run`):

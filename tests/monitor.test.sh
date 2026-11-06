@@ -86,8 +86,10 @@ chmod +x "$FAKE/bin/gh"; export PATH="$FAKE/bin:$PATH"
 write_config "$R" 'monitor: {checks: [{name: health, cmd: "false"}]}'
 run bash "$M" --once;                            t_code 1 "github-issue is the default report"
 t_has "$OUT" "issue: https://github.com/o/r/issues/12" "issue URL printed"
-t_has "$(cat "$FAKE/calls")" "issue create --label factory-incident" "labelled factory-incident"
-printf '[{"number":12,"title":"[health] failing after deploy (live)"}]' > "$FAKE/open.json"
+t_has "$(cat "$FAKE/calls")" "issue create --label todo --title Incident: [health] failing after deploy" "an Incident: issue, todo for a bugfix run"
+printf '[{"number":11,"title":"[health] something else"}]' > "$FAKE/open.json"
+run bash "$M" --once;                            t_code 1 "an issue without the Incident: prefix isn't an incident"
+printf '[{"number":12,"title":"Incident: [health] failing after deploy (live)"}]' > "$FAKE/open.json"
 run bash "$M" --once;                            t_code 3 "an open GitHub incident isn't filed twice"
 t_has "$OUT" "open incident #12" "names it"
 

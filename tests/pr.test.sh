@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# pr.sh: the run's draft PR from the first commit, published planning artifacts, corrections read from PR
-# comments, and the PRD approval taken only from a valid /approve. gh is a fake on PATH; origin is a
-# bare repository.
+# pr.sh: the run's issue and draft PR from the first commit, published planning artifacts, requests for the
+# person on the issue (the PR blocked meanwhile), corrections read from the issue and the PR, and approvals
+# taken only from a valid /approve. gh is a fake on PATH; origin is a bare repository.
 . "$(dirname "$0")/lib.sh"
 R="$(new_repo)"; export FACTORY_ROOT="$R"
 write_config "$R" 'review:
@@ -21,8 +21,13 @@ case "$1 $2" in
   "auth status") exit 0 ;;
   "pr view") [ -f "$FAKE/pr.json" ] || { echo "no pull requests found" >&2; exit 1; }
     q=.; for a in "$@"; do [ "${prev:-}" = --jq ] && q="$a"; prev="$a"; done
+    touch "$FAKE/body.md"
     jq --argjson l "$(jq -R '{name: .}' "$FAKE/labels" 2>/dev/null | jq -s .)" --argjson d "$([ -f "$FAKE/ready" ] && echo false || echo true)" \
-      '. + {labels: $l, isDraft: $d}' "$FAKE/pr.json" | jq -r "$q" ;;
+      --rawfile b "$FAKE/body.md" '. + {labels: $l, isDraft: $d, body: $b}' "$FAKE/pr.json" | jq -r "$q" ;;
+  "pr list") touch "$FAKE/body.md" "$FAKE/labels"; [ -f "$FAKE/pr.json" ] || { echo '[]'; exit 0; }
+    jq -n --rawfile b "$FAKE/body.md" --argjson l "$(jq -R '{name: .}' "$FAKE/labels" | jq -s .)" '[{number: 7, body: $b, labels: $l}]' ;;
+  "pr close") echo "$*" > "$FAKE/pr_closed" ;;
+  "issue create") printf '%s\n' "$*" >> "$FAKE/issue_created"; echo https://github.com/o/r/issues/43 ;;
   "pr ready") if [ "${4:-}" = --undo ]; then rm -f "$FAKE/ready"; echo undo >> "$FAKE/ready_calls"; else touch "$FAKE/ready"; echo ready >> "$FAKE/ready_calls"; fi ;;
   "pr checks")   # $FAKE/checks: one JSON array per call, the last one repeating; none: "no checks reported"
     [ -s "$FAKE/checks" ] || { echo "no checks reported on the 'x' branch" >&2; exit 1; }
@@ -111,15 +116,18 @@ t_eq "$(git -C "$BARE" rev-parse refs/heads/factory/dark-mode)" "$(git -C "$R" r
 t_has "$(cat "$FAKE/calls")" "pr create --draft --fill" "ship.pr_open opened the draft PR"
 t_eq "$(bash "$S/state.sh" get .pr)" "7" "PR number recorded"
 t_eq "$(cat "$FAKE/title")" "dark-mode: Add a dark-mode toggle" "PR title from the request"
-t_eq "$(sort "$FAKE/labels" | tr '\n' ' ')" "factory2 factory2:stage-1-plan " "the run's PR is labelled factory2 and its stage"
-t_has "$(cat "$FAKE/repo_labels")" "factory2:stage-8-monitor" "a label for every stage created in the repository"
-t_has "$(cat "$FAKE/repo_labels")" "factory2:awaiting-prd" "gate labels created in the repository"
-t_has "$(cat "$FAKE/repo_labels")" "factory2:approved-evidence" "for both gates"
-t_hasnt "$(cat "$FAKE/repo_labels")" "deploy" "deploy is not a gate"
+t_has "$(cat "$FAKE/issue_created")" "--title Add a dark-mode toggle" "a run without an issue creates it from the request"
+t_eq "$(bash "$S/state.sh" get .issue)" "43" "and works on it"
+t_eq "$(head -n 2 "$FAKE/body.md")" "<!-- issue-flow:issue=43 status=planning -->
+Part of #43" "the PR names its one issue, without closing it"
+t_eq "$(cat "$FAKE/labels")" "building" "the PR is building"
+t_eq "$(sort "$FAKE/issue_labels" | tr '\n' ' ')" "planning " "the issue is planning"
 t_has "$(cat "$FAKE/body.md")" "request.md](https://github.com/o/r/blob/factory/dark-mode/docs/specs/dark-mode/request.md)" "body links the request"
 run bash "$P" enabled;                         t_code 0 "tracked after open"
 runi bash "$P" open < "$T_TMP/req";             t_code 0 "open again reuses the PR"
 t_eq "$(grep -c 'pr create' "$FAKE/calls")" "1" "no second PR"
+t_eq "$(wc -l < "$FAKE/issue_created" | tr -d ' ')" "1" "nor a second issue"
+t_eq "$(grep -c 'issue-flow:issue' "$FAKE/body.md")" "1" "one issue-flow marker"
 
 # --- stage 1: the plan is published with what changed
 printf '# PRD\nAC-1 toggle\n' > "$SP/prd.md"
@@ -182,6 +190,14 @@ t_eq "$(bash "$S/state.sh" get '.approvals.prd // "none"')" "none" "not approved
 
 run bash "$P" request-approval prd;            t_code 0 "request approval"
 c="$(jq -r '.[-1].body' "$FAKE/issue_comments.json")"
+t_has "$c" "For your approval: the plan" "the details are on the PR"
+req="$(jq -r '.[-1].body' "$FAKE/issue-43.json")"
+t_has "$req" "### 🛑 Blocked: PR #7 needs your approval of the plan" "the request is on the issue, naming the PR"
+t_has "$req" "**Open [PR #7](https://github.com/o/r/pull/7#issuecomment-" "linking the details"
+t_has "$req" "  /approve" "with the exact reply"
+t_has "$req" "AC-1: an empty list" "and a change example naming the run's criterion"
+t_eq "$(cat "$FAKE/labels")" "blocked" "the PR is blocked"
+t_eq "$(sort "$FAKE/issue_labels" | tr '\n' ' ')" "blocked planning " "the issue shows it next to its status"
 t_has "$c" "#### What will be built" "request shows what will be built"
 t_has "$c" "- **AC-1** (e2e): WHEN the user clicks the toggle THE SYSTEM SHALL switch to dark mode" "every criterion inline"
 t_has "$c" "#### How the planner proposes to build it" "and how"
@@ -190,11 +206,9 @@ t_has "$c" "A theme toggle in the header." "plan.md inline"
 t_hasnt "$c" "# Plan: dark-mode" "plan title dropped"
 t_has "$c" "# not a heading" "code fences left alone"
 t_hasnt "$c" "### not a heading" "no heading demoted inside a fence"
-t_has "$(cat "$FAKE/labels")" "factory2:awaiting-approval" "awaiting-approval label while a request waits"
-t_has "$(cat "$FAKE/labels")" "factory2:awaiting-prd" "awaiting-prd label"
 t_has "$(cat "$FAKE/body.md")" "Waiting for your approval: prd" "body links the waiting request"
 head="$(git -C "$R" rev-parse HEAD)"
-t_has "$(jq -r '.[-1].body' "$FAKE/issue_comments.json")" "approval-request:prd:$head" "request names the SHA"
+t_has "$req" "approval-request:prd:$head" "request names the SHA"
 
 # corrections win over an /approve in the same batch
 human dev OWNER "/approve"
@@ -223,10 +237,10 @@ t_eq "$(bash "$S/state.sh" get .approvals.prd.sha)" "$head" "approval recorded a
 t_eq "$(bash "$S/state.sh" get .approvals.prd.by)" "dev" "approver recorded"
 t_has "$(bash "$S/state.sh" get .approvals.prd.url)" "#issuecomment-" "approval comment linked"
 t_has "$(cat "$SP/feedback/prd-2.md")" "Ship it behind the flag." "approval notes saved"
-t_has "$(jq -r '.[-1].body' "$FAKE/issue_comments.json")" "Approved: the plan: what will be built and how" "approval confirmed on the PR"
+t_has "$(jq -r '.[-1].body' "$FAKE/issue-43.json")" "Approved: the plan: what will be built and how" "approval confirmed on the issue"
 t_has "$(cat "$FAKE/body.md")" "✅ **prd** approved" "body shows the approval"
-t_hasnt "$(cat "$FAKE/labels")" "awaiting" "awaiting labels removed on approval"
-t_has "$(cat "$FAKE/labels")" "factory2:approved-prd" "approved-prd label"
+t_eq "$(cat "$FAKE/labels")" "building" "the PR is building again"
+t_eq "$(sort "$FAKE/issue_labels" | tr '\n' ' ')" "planning " "the issue is no longer blocked"
 
 # --- the evidence gate is approved on the PR too; deploy and rollback are not gates
 run bash "$S/state.sh" approve evidence;       t_code 1 "terminal evidence approval refused"
@@ -235,31 +249,37 @@ run bash "$S/state.sh" approve rollback;       t_code 2 "rollback is not a gate"
 bash "$S/state.sh" round evidence >/dev/null
 runi bash "$P" request-approval evidence --details - <<< "Review pack: https://example.com/pack"
 t_code 0 "evidence request"
-t_has "$(jq -r '.[-1].body' "$FAKE/issue_comments.json")" "Review pack: https://example.com/pack" "request carries the details from stdin"
-t_has "$(jq -r '.[-1].body' "$FAKE/issue_comments.json")" "This is the last approval" "evidence request says deploy follows"
-t_has "$(cat "$FAKE/labels")" "factory2:awaiting-evidence" "awaiting-evidence label"
-human dev OWNER "The button is misaligned on mobile."
+t_has "$(jq -r '.[-1].body' "$FAKE/issue_comments.json")" "Review pack: https://example.com/pack" "the details from stdin are on the PR"
+t_has "$(jq -r '.[-1].body' "$FAKE/issue-43.json")" "This is the last approval" "evidence request says deploy follows"
+t_has "$(jq -r '.[-1].body' "$FAKE/issue-43.json")" "AC-1 does not hold" "with an evidence change example"
+t_eq "$(cat "$FAKE/labels")" "blocked" "blocked on the evidence"
+on_issue 43 dev OWNER "The button is misaligned on mobile."
 run bash "$P" feedback evidence
-t_eq "$(printf '%s' "$OUT" | jq -r .feedback_file)" "docs/specs/dark-mode/feedback/evidence-1.md" "evidence comments saved per round"
-t_hasnt "$(cat "$FAKE/labels")" "awaiting" "a request answered with comments is closed"
+t_eq "$(printf '%s' "$OUT" | jq -r .feedback_file)" "docs/specs/dark-mode/feedback/evidence-1.md" "evidence comments on the issue saved per round"
+t_has "$(cat "$SP/feedback/evidence-1.md")" "misaligned on mobile" "word for word"
+t_eq "$(cat "$FAKE/labels")" "building" "a request answered with comments unblocks the PR"
 bash "$P" request-approval evidence < /dev/null >/dev/null
+on_issue 43 dev OWNER "/verified"
+run bash "$P" feedback evidence
+t_eq "$(printf '%s' "$OUT" | jq -r .status)" "none" "another automation's command is neither an approval nor a change request"
 human dev OWNER "/approve"
 run bash "$P" feedback evidence
-t_eq "$(printf '%s' "$OUT" | jq -r .status)" "approved" "evidence approved"
-t_has "$(cat "$FAKE/labels")" "factory2:approved-evidence" "approved-evidence label"
+t_eq "$(printf '%s' "$OUT" | jq -r .status)" "approved" "evidence approved on the PR too"
 
 run bash "$P" request-approval deploy;         t_code 2 "no deploy request"
 run bash "$P" request-approval rollback;       t_code 2 "no rollback request"
 run bash "$P" request-approval prd --sha "$(git -C "$R" rev-parse HEAD)"; t_code 2 "no approving an arbitrary commit"
 run bash "$P" request-approval merge;          t_code 2 "unknown gate"
 
-# going back revokes approvals and their labels
-bash "$S/state.sh" stage 7 >/dev/null; bash "$S/state.sh" stage 5 >/dev/null
-t_hasnt "$(cat "$FAKE/labels")" "approved-evidence" "revoked approval's label removed"
-t_has "$(cat "$FAKE/labels")" "factory2:approved-prd" "earlier approvals keep their labels"
-t_eq "$(grep -c 'stage-' "$FAKE/labels")" "1" "one stage label at a time"
-t_has "$(cat "$FAKE/labels")" "factory2:stage-5-review" "the stage label follows the run back"
-t_hasnt "$(cat "$FAKE/issue_edits" 2>/dev/null)" "factory2" "a run without an issue labels no issue"
+# the issue's status follows the run's stage, back too
+for st in "4 building" "5 testing" "6 documenting" "7 documenting" "3 planning"; do
+  bash "$S/state.sh" stage "${st%% *}" >/dev/null
+  t_eq "$(sort "$FAKE/issue_labels" | tr '\n' ' ')" "${st#* } " "stage ${st%% *}: the issue is ${st#* }"
+done
+t_eq "$(head -n 1 "$FAKE/body.md")" "<!-- issue-flow:issue=43 status=planning -->" "the PR's marker keeps its status"
+run bash "$P" body;                            t_code 0 "body"
+t_eq "$(head -n 1 "$FAKE/body.md")" "<!-- issue-flow:issue=43 status=planning -->" "refreshing the body keeps it"
+t_eq "$(cat "$FAKE/labels")" "building" "the PR stays building"
 
 # --- review.via: terminal
 R2="$(new_repo)"; FACTORY_ROOT="$R2"
@@ -272,176 +292,52 @@ t_eq "$(bash "$S/state.sh" get .review_via)" "terminal" "terminal gates recorded
 run bash "$S/state.sh" approve prd;            t_code 0 "terminal approval works when not on a PR"
 bash "$S/state.sh" end >/dev/null
 
-# --- the issue a run was started from carries its stage, on a terminal run too
+# --- a run from an issue: no new issue; questions and notices go to it
 run bash "$S/state.sh" start wp --feature;     t_code 2 "--feature without --issue"
 run bash "$S/state.sh" start wp --issue 47 --feature; t_code 0 "a feature run from an issue"
 t_eq "$(bash "$S/state.sh" get .kind)" "feature" "it is a feature run"
 t_eq "$(bash "$S/state.sh" get .issue)" "47" "that tracks the issue"
-t_eq "$(sort "$FAKE/issue_labels" | tr '\n' ' ')" "factory2 factory2:stage-1-plan " "the issue is labelled at start"
-bash "$S/state.sh" stage 4 >/dev/null
-t_eq "$(sort "$FAKE/issue_labels" | tr '\n' ' ')" "factory2 factory2:stage-4-implement " "entering a stage replaces the issue's stage label"
-t_has "$(tail -n 1 "$FAKE/issue_edits")" "47 --add-label factory2:stage-4-implement --remove-label factory2:stage-1-plan" "in one edit of that issue"
-printf 'triage\n' >> "$FAKE/issue_labels"
-bash "$S/state.sh" stage 5 >/dev/null
-t_has "$(cat "$FAKE/issue_labels")" "triage" "the maintainers' own labels stay"
-n_edits="$(wc -l < "$FAKE/issue_edits")"
-run bash "$P" labels;                          t_code 0 "labels again"
-t_eq "$(wc -l < "$FAKE/issue_edits")" "$n_edits" "no edit when the labels already match"
 bash "$S/state.sh" end >/dev/null
 run bash "$S/state.sh" start fix-1 --issue .factory/incidents/I-1.md; t_code 0 "a bugfix run from a local incident"
 t_eq "$(bash "$S/state.sh" get .kind)" "bugfix" "is a bugfix run"
-t_eq "$(wc -l < "$FAKE/issue_edits")" "$n_edits" "and labels no GitHub issue"
-run bash "$P" labels;                          t_code 1 "labels with neither a PR nor a GitHub issue"
 bash "$S/state.sh" end >/dev/null
 
-# --- issues.stage_labels: the project's own workflow labels instead of factory2's
-write_config "$R2" 'review:
-  via: terminal
-issues:
-  link_keyword: Implements
-  stage_labels: {1: "stage:2-planning", 4: "stage:5-in-development", 7: "stage:7-merge-ready", merged: "stage:8-verification"}'
-printf 'stage:1-idea\npriority:p1\nfactory2\nfactory2:stage-4-implement\n' > "$FAKE/issue_labels"
-run bash "$S/state.sh" start wp2 --issue 48 --feature; t_code 0 "a run on a project with its own stage labels"
-t_eq "$(sort "$FAKE/issue_labels" | tr '\n' ' ')" "priority:p1 stage:1-idea stage:2-planning " "the mapped label only; factory2's own are removed"
-bash "$S/state.sh" stage 4 >/dev/null
-t_eq "$(sort "$FAKE/issue_labels" | tr '\n' ' ')" "priority:p1 stage:1-idea stage:5-in-development " "the map's earlier label is replaced; unmapped labels stay"
-bash "$S/state.sh" stage 5 >/dev/null
-t_has "$(cat "$FAKE/issue_labels")" "stage:5-in-development" "an unmapped stage keeps the last mapped label"
-bash "$S/state.sh" stage 7 >/dev/null
-bash "$S/state.sh" set '.ship.merged = {sha: "abc"}' >/dev/null
-run bash "$P" labels;                          t_code 0 "labels after the merge"
-t_eq "$(sort "$FAKE/issue_labels" | tr '\n' ' ')" "priority:p1 stage:1-idea stage:8-verification " "merged: the project's label for it"
-printf '  stage_label_prefix: "stage:"\n' >> "$R2/.factory/config.yaml"
-bash "$S/state.sh" set '.ship.merged = null' >/dev/null
-run bash "$P" labels;                          t_code 0 "labels with a prefix"
-t_eq "$(sort "$FAKE/issue_labels" | tr '\n' ' ')" "priority:p1 stage:7-merge-ready " "the prefix clears labels the map never sets"
-printf '  labels: false\n' >> "$R2/.factory/config.yaml"
-n_edits="$(wc -l < "$FAKE/issue_edits")"
-bash "$S/state.sh" stage 8 >/dev/null
-run bash "$P" labels;                          t_code 1 "issues.labels false: nothing to label on a terminal run"
-t_eq "$(wc -l < "$FAKE/issue_edits")" "$n_edits" "and the issue is left to the project's automation"
-# --- a run with an issue: the issue carries the run's labels, the PR follows it and carries none
 R3="$(new_repo)"; FACTORY_ROOT="$R3"
-printf '[]' > "$FAKE/issue_comments.json"; printf '[]' > "$FAKE/review_comments.json"; printf '[]' > "$FAKE/reviews.json"   # a new PR
-write_config "$R3" 'issues:
-  link_keyword: Implements'
+printf '[]' > "$FAKE/issue_comments.json"; printf '[]' > "$FAKE/review_comments.json"; printf '[]' > "$FAKE/reviews.json"; rm -f "$FAKE/issue-43.json" "$FAKE/pr.json" "$FAKE/body.md"   # a new PR
+write_config "$R3" 'review:
+  poll_seconds: 1'
 git -C "$R3" add -A && git -C "$R3" commit -q -m config
 git init -q --bare "$T_TMP/origin3.git"; git -C "$R3" remote add origin "$T_TMP/origin3.git"
-: > "$FAKE/issue_labels"
+printf 'todo\nbug\n' > "$FAKE/issue_labels"; : > "$FAKE/labels"; : > "$FAKE/issue_created"
 bash "$S/state.sh" start ops --issue 43 --feature >/dev/null
 bash "$S/state.sh" branch >/dev/null
-printf 'factory2\nfactory2:stage-1-plan\nfactory2:awaiting-prd\nbug\n' > "$FAKE/labels"   # left from before
 runi bash "$P" open <<< "Close abuse notices";  t_code 0 "open a PR for an issue's run"
-t_eq "$(sort "$FAKE/labels" | tr '\n' ' ')" "bug " "the PR carries no factory2 labels; its own stay"
-t_eq "$(sort "$FAKE/issue_labels" | tr '\n' ' ')" "factory2 factory2:stage-1-plan " "the issue carries the run's labels"
-t_has "$(cat "$FAKE/body.md")" "Implements #43" "the PR names its issue"
-t_has "$(cat "$FAKE/body.md")" "the labels are on the issue" "the body says where the labels are"
+t_eq "$(wc -l < "$FAKE/issue_created" | tr -d ' ')" "0" "the issue exists: none created"
+t_eq "$(sort "$FAKE/issue_labels" | tr '\n' ' ')" "bug planning " "todo becomes planning; the issue's own labels stay"
+t_has "$(cat "$FAKE/body.md")" "Part of #43" "the PR names its issue"
 t_has "$(cat "$FAKE/body.md")" "Anything that needs you is asked on the issue (#43)" "and where requests go"
-bash "$S/state.sh" set '.approval_request = {gate: "prd"} | .approvals = {}' >/dev/null
-run bash "$P" labels;                          t_code 0 "labels with a request waiting"
-t_has "$(cat "$FAKE/issue_labels")" "factory2:awaiting-prd" "the waiting request is on the issue"
-t_hasnt "$(cat "$FAKE/labels")" "factory2" "and not on the PR"
+t_hasnt "$(cat "$FAKE/body.md")" "Fixes #43" "and doesn't close it on merge"
 
-# --- what needs a person is asked on the issue, with the exact reply and examples
-bash "$S/state.sh" set 'del(.approval_request)' >/dev/null
-mkdir -p "$R3/docs/specs/ops"; printf '{"criteria":[{"id":"AC-7","passes":false}]}\n' > "$R3/docs/specs/ops/contract.json"
-printf '  commands:\n    approve: /accept\n' >> "$R3/.factory/config.yaml"
-git -C "$R3" add -A && git -C "$R3" commit -q -m "spec and config"
-n_pr="$(jq length "$FAKE/issue_comments.json")"
-runi bash "$P" request-approval evidence --details - <<< "Review pack: https://example.com/pack"; t_code 0 "request the evidence approval"
-req="$(jq -r '.[-1].body' "$FAKE/issue-43.json")"
-t_has "$req" "factory2 needs your approval: what was built" "the request is on the issue"
-t_has "$req" "Review pack: https://example.com/pack" "with the details"
-t_has "$req" "Reply on this issue with one of" "saying where to reply"
-t_has "$req" "  /accept" "the exact approval reply, from issues.commands.approve"
-t_has "$req" "AC-7 does not hold" "a change request example naming the run's own criterion"
-t_has "$req" "pull request https://github.com/o/r/pull/7" "and linking the PR"
-t_eq "$(jq length "$FAKE/issue_comments.json")" "$n_pr" "nothing is asked on the PR"
-t_has "$(cat "$FAKE/issue_labels")" "factory2:awaiting-evidence" "the issue shows what waits"
-on_issue 43 owner OWNER "/verified"
-run bash "$P" feedback evidence;               t_code 0 "feedback"
-t_has "$OUT" '"status":"none"' "another automation's command is neither an approval nor a change request"
-on_issue 43 owner OWNER $'/accept\nShip it.'
-run bash "$P" feedback evidence;               t_code 0 "feedback"
-t_has "$OUT" '"status":"approved"' "the configured reply on the issue approves"
-t_eq "$(bash "$S/state.sh" get .approvals.evidence.by)" "owner" "by the person who replied"
-t_has "$(jq -r '.[-1].body' "$FAKE/issue-43.json")" "Approved: what was built (evidence)" "confirmed on the issue"
-t_hasnt "$(cat "$FAKE/issue_labels")" "awaiting" "nothing waits any more"
-
-# --- a question for the person (an escalation) is asked on the issue too
 runi bash "$P" ask <<< $'The review rounds ran out with 1 blocking finding (R3.P1: no empty state).\n\nOptions:\n- **Continue**: one more round. Reply: `continue`\n- **Accept as is**: reply `accept R3.P1`'
 t_code 0 "ask"
-t_has "$(jq -r '.[-1].body' "$FAKE/issue-43.json")" "factory2 needs a decision" "the question is on the issue"
-t_has "$(cat "$FAKE/issue_labels")" "factory2:awaiting-input" "labelled as waiting for an answer"
+q="$(jq -r '.[-1].body' "$FAKE/issue-43.json")"
+t_has "$q" "Blocked: PR #7 needs a decision" "the question is on the issue, naming the PR"
+t_has "$q" "reply \`accept R3.P1\`" "with the exact replies"
+t_eq "$(cat "$FAKE/labels")" "blocked" "the PR is blocked"
+t_has "$(cat "$FAKE/issue_labels")" "blocked" "so is the issue"
 on_issue 43 owner OWNER "continue"
 run bash "$P" answer --timeout 5;              t_code 0 "answer"
 t_has "$OUT" '"status":"answered"' "the reply is the answer"
 t_has "$(cat "$R3/docs/specs/ops/feedback/question-1.md")" "continue" "saved word for word"
-t_hasnt "$(cat "$FAKE/issue_labels")" "awaiting-input" "and nothing waits"
+t_eq "$(cat "$FAKE/labels")" "building" "the PR is building again"
+t_hasnt "$(cat "$FAKE/issue_labels")" "blocked" "nothing waits on the issue"
 
-# --- notices and a linked issue: everything for a person goes to every issue the run works on
 runi bash "$P" notify <<< "Deployed abc123; the smoke test passed."; t_code 0 "notify"
 t_has "$(jq -r '.[-1].body' "$FAKE/issue-43.json")" "Deployed abc123" "a notice goes to the issue"
-run bash "$S/state.sh" link-issue '#44';      t_code 0 "link another issue"
-runi bash "$P" notify <<< "Second notice.";    t_code 0 "notify again"
-t_has "$(jq -r '.[-1].body' "$FAKE/issue-44.json")" "Second notice." "the linked issue gets it too"
-t_has "$(jq -r '.[-1].body' "$FAKE/issue-43.json")" "Second notice." "as does the run's own issue"
-run bash "$P" body;                            t_code 0 "body"
-t_has "$(cat "$FAKE/body.md")" "Implements #44" "the PR names the linked issue too"
-t_has "$(cat "$FAKE/calls")" "issue view 44 --json labels" "and its labels are kept with the run's"
-run bash "$S/state.sh" link-issue nope;       t_code 2 "link-issue needs an issue reference"
-
-# --- issues.flow: the project's own issue flow approves the plan
-cat >> "$R3/.factory/config.yaml" <<'YAML'
-  flow:
-    ready_for_plan: [stage:2-planning]
-    accept_idea: /approve
-    submit: /submit
-    approve: /approve
-    changes: "/changes <what>"
-    approved: [stage:4-ready, stage:5-in-development]
-YAML
-printf '### Problem\n\nx\n\n### Scope\n\nthe plan\n' > "$R3/docs/specs/ops/issue-plan.md"
-git -C "$R3" add -A && git -C "$R3" commit -q -m "flow"
-printf 'stage:1-idea\n' >> "$FAKE/issue_labels"
-runi bash "$P" request-approval prd;          t_code 0 "the plan's approval through the issue flow"
-req="$(jq -r '.[-1].body' "$FAKE/issue-43.json")"
-t_has "$req" "factory2 needs you to accept this idea first" "an idea not accepted yet: asks for that first"
-t_has "$req" "  /approve" "with the exact reply"
-t_eq "$(bash "$S/state.sh" get .approval_request.flow)" "idea" "waiting for the idea"
-on_issue 43 owner OWNER "/approve"
-sed -i.bak 's/stage:1-idea/stage:2-planning/' "$FAKE/issue_labels"
-run bash "$P" feedback prd;                    t_code 0 "feedback once the idea is accepted"
-t_has "$OUT" '"status":"none"' "the flow's /approve is not a change request"
-t_eq "$(cat "$FAKE/issue_body.md")" "$(cat "$R3/docs/specs/ops/issue-plan.md")" "the plan is written into the issue's body"
-sub="$(jq -r '.[-1].body' "$FAKE/issue-43.json")"
-t_eq "$(printf '%s' "$sub" | head -n 1)" "/submit" "and submitted with the flow's command"
-t_has "$sub" "factory2 needs your review of the plan" "saying it waits for the owner"
-t_has "$sub" "/changes AC-7: an empty list" "with a change request example in the flow's form"
-on_issue 43 "github-actions[bot]" NONE '`/submit` refused: the plan is not ready yet: Scope names nothing out of scope'
-run bash "$P" feedback prd;                    t_code 0 "feedback after the flow refused the submit"
-t_has "$OUT" '"status":"changes"' "the flow's refusal is a change request"
-t_has "$(cat "$R3/docs/specs/ops/feedback/prd-0.md")" "Scope names nothing out of scope" "with the flow's reason, word for word"
-runi bash "$P" request-approval prd;          t_code 0 "submitted again after the refusal"
-on_issue 43 owner OWNER "/changes AC-7: keep the table"
-run bash "$P" feedback prd;                    t_code 0 "feedback"
-t_has "$OUT" '"status":"changes"' "the flow's changes command is a change request"
-t_has "$(cat "$R3/docs/specs/ops/feedback/prd-0.md")" "keep the table" "saved word for word"
-runi bash "$P" request-approval prd;          t_code 0 "submitted again"
-on_issue 43 owner OWNER "/approve"
-sed -i.bak 's/stage:2-planning/stage:5-in-development/' "$FAKE/issue_labels"
-run bash "$P" feedback prd;                    t_code 0 "feedback"
-t_has "$OUT" '"status":"approved"' "the issue reaching an approved label approves the plan"
-t_eq "$(bash "$S/state.sh" get .approvals.prd.by)" "owner" "by the owner who approved it in the flow"
-printf '  labels: false\n' >> "$R3/.factory/config.yaml"
-printf 'factory2:stage-2-prd-review\n' >> "$FAKE/labels"
-n_edits="$(wc -l < "$FAKE/issue_edits")"
-run bash "$P" labels;                          t_code 0 "issues.labels false on a PR run"
-t_hasnt "$(cat "$FAKE/labels")" "factory2" "the PR still carries none"
-t_eq "$(wc -l < "$FAKE/issue_edits")" "$n_edits" "and the issue is left to the project's automation"
-run bash "$P" body;                            t_code 0 "body on a run whose issue the project labels"
-t_hasnt "$(cat "$FAKE/body.md")" "Find waiting requests" "no label hint once the project labels its issues"
-bash "$S/state.sh" end >/dev/null
+t_eq "$(cat "$FAKE/labels")" "building" "and blocks nothing"
+run bash "$S/state.sh" end --stop;             t_code 0 "the person stops the run"
+t_has "$(cat "$FAKE/pr_closed")" "pr close 7" "its PR is closed"
+t_eq "$(sort "$FAKE/issue_labels" | tr '\n' ' ')" "bug todo " "and the issue is todo again"
 # --- ready to merge: out of draft, and every check on the PR passed; in progress: a draft
 FACTORY_ROOT="$R"
 bash "$S/state.sh" resume dark-mode >/dev/null 2>&1 || true

@@ -90,12 +90,15 @@ Then, in your project, inside Claude Code:
 /factory2:run "Add a dark-mode toggle"  # starts a run and opens its draft PR
 ```
 
-factory2 tells you when the plan waits for you on the PR. Read it there, comment to correct it, or
-reply `/approve`. To see every run waiting for someone:
+Every feature is one GitHub issue: the run creates it from your request (or works on yours, `--issue
+<n>`), and its status follows the work: `todo` → `planning` → `building` → `testing` → `documenting` →
+closed when its last PR merges. When factory needs you, the PR and the issue are `blocked` and a comment
+on the issue names the PR and says exactly what to reply (`/approve`, or your corrections). To see what
+waits for you, and what is ready to build:
 
 ```sh
-gh issue list --search 'label:factory2:awaiting-approval,factory2:awaiting-input'   # approvals and questions waiting for you
-gh pr list --search 'label:factory2:awaiting-approval,factory2:awaiting-input'      # runs without an issue
+gh issue list --label blocked   # approvals and questions waiting for you
+gh issue list --label todo      # wanted; /factory2:run with no arguments lists these
 ```
 
 Your project's checks are its own commands. Each writes JUnit XML into `$FACTORY_REPORTS`, and a test
@@ -108,7 +111,9 @@ names its criterion with `@AC-n` in its title (or `AC_n` in a Go or Swift functi
 | `/factory2:init` | Checks the environment and writes `.factory/config.yaml` for your stack |
 | `/factory2:run "<feature>"` | Starts a run; `/factory2:run <slug>` resumes one |
 | `/factory2:run --issue <ref>` | Starts a bugfix run from an issue (GitHub number or URL, or a local incident file) |
+| `/factory2:run` | Lists the issues labelled `todo`, ready to build |
 | `/factory2:status` | Where the active run stands, and what waits for you |
+| `/factory2:issue-flow` | The issue flow on its own: set up its labels, show an issue and its PRs, move them |
 | `/factory2:monitor <slug>` | One round of production checks; pair with `/loop 15m` |
 | `/factory2:stats` | Spend, first-pass rates, human-found issues and QA misses across runs |
 

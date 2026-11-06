@@ -38,7 +38,7 @@ This document is the current design and its evidence. `docs/GUIDE.md` is the use
 **Names.** The plugin and its marketplace are `factory2`: `claude plugin install factory2@factory2`,
 commands `/factory2:*`, agents `factory2:<agent>`, hook matchers `^factory2:`. Project data keeps
 shorter names, because they are data rather than the plugin's identity: `.factory/`, the branch prefix
-`factory/<slug>`, the commit prefix `factory(<slug>)`, the issue label `factory-incident`, and the
+`factory/<slug>`, the commit prefix `factory(<slug>)`, the incident title prefix `Incident: `, and the
 memory folders `.claude/agent-memory/factory-<agent>/`.
 
 ## Models
@@ -146,22 +146,24 @@ deploy). Deploy and rollback are not gates.
   factory says why and asks again. `pr.sh feedback` records it with the commit, the approver and the
   comment link. At stage 2, an approval while the reviewer still has blocking findings is recorded as an
   override.
-- **Finding what waits.** Labels: `factory2` on every run's PR, `factory2:awaiting-approval` and
-  `factory2:awaiting-<gate>` while a request waits, `factory2:approved-<gate>` while an approval holds.
-  `gh pr list --label factory2:awaiting-approval` lists every run waiting for someone.
-- **Stage on the issue.** One `factory2:stage-<n>-<name>` label at a time, on the PR and on the GitHub
-  issue the run was started from (bugfix or `--feature`), set by `state.sh start` and `stage`, so
-  maintainers see each feature's progress in the issue list. The common practice is a small set of
-  exclusive workflow-state labels that a bot moves as work moves (in progress, in review; GitLab's
-  scoped labels make them exclusive), and that are only the tool's own: the issue's other labels stay.
+- **One issue per feature, the only source of truth.** Every PR run works on one GitHub issue: the one it
+  was started from, or one `pr.sh open` creates from the request. The issue carries one status label:
+  `todo` (a person wants it built), `planning` (stages 1-3), `building` (4), `testing` (5),
+  `documenting` (6-7), and is closed (done) when its last PR merges; plus `blocked` while any of its PRs
+  waits for a person. A PR contributes to exactly one issue (`Part of #n`, never a closing keyword) and
+  carries `building` or `blocked`. With several open PRs the issue shows the earliest status. The flow
+  is its own reusable skill (`issue-flow`, `scripts/issue-flow.sh`), so projects use it without a run.
+- **Requests for a person are issue comments naming the PR.** Approval requests and questions block the
+  PR and the issue and say exactly what to reply, with examples; the details stay on the PR.
+  `gh issue list --label blocked` lists everything waiting for someone.
 - **Only the person approves.** factory's comments carry a hidden marker
   (`<!-- factory2:<slug>:<kind> -->`) and are never read as the person's. `state.sh approve` refuses an
   approval without `--via-pr` on a PR run, and guard-bash blocks `gh pr comment`, `gh pr review`,
-  comment, review and label writes through `gh api`, and changes to `factory2` labels while a run is
-  tracked on a PR. factory and the person may share one GitHub account, so this is a seatbelt, not a
+  `gh issue comment` on the run's issue, comment, review and label writes through `gh api`, and changes
+  to the issue flow's labels while a run is tracked on a PR. factory and the person may share one GitHub account, so this is a seatbelt, not a
   security boundary.
-- **Approvals hold for one pass.** Going back to a stage at or before a gate revokes its approval and its
-  label.
+- **Approvals hold for one pass.** Going back to a stage at or before a gate revokes its approval, and
+  the issue's status moves back with the stage.
 
 **In the terminal** (`review.via: terminal`, or no gh, login or origin): a one-screen summary (at stage 2:
 the criteria and the plan's summary, approach and decisions; the findings by severity; spend), then
@@ -172,8 +174,8 @@ Budget, round-limit and merge-conflict escalations are questions, asked in the t
 ## Incidents and bugfix runs
 
 - **`monitor.sh` is pure shell.** It runs `monitor.checks` and compares the results with the baseline.
-  On an anomaly it **files an issue first**: a GitHub issue labelled `factory-incident`
-  (`monitor.report: github-issue`, the default), the tracker command `monitor.issue_cmd` (`command`), or
+  On an anomaly it **files an issue first**: a GitHub issue titled `Incident: …` and labelled
+  `todo` (`monitor.report: github-issue`, the default), the tracker command `monitor.issue_cmd` (`command`), or
   `.factory/incidents/I-n.md` (`file`). It runs `ship.rollback` itself only if `auto_rollback: true`.
   `monitor.sh issue` files the same kind of issue for a smoke failure at stage 7.
 - **Schedulers:** local `/loop 15m /factory2:monitor <slug>` (only while the session is idle; expires
@@ -424,7 +426,7 @@ lessons in `docs/solutions/`.
     `docker compose`.
   - **Stage 8:** under launchd a broken `/health` files an issue; the next session triages it and rolls
     back; a bugfix run from the issue fixes it, closes it and writes the postmortem. A GitHub Actions run
-    opens a `factory-incident` issue.
+    opens an `Incident: …` issue.
   - **History files** show model and effort per agent, spend per stage, the ce-compound version and
     outcomes.
 - **Not yet verified against real GitHub:** the PR flow's `gh api` paths, inline review comment shapes

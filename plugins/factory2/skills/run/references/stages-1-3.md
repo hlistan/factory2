@@ -8,9 +8,11 @@
    run's base there (the first freeze compares check files with it). Exit 1 means uncommitted changes:
    stop and ask.
 2. **Draft PR first.** `bash $S/pr.sh open` with the request verbatim on stdin (bugfix run: the issue's
-   title, body and every comment). It commits `request.md`, pushes `factory/<slug>`, opens the draft PR
-   (`ship.pr_open`) and writes its description. From here the person follows and steers the planning
-   on the PR. Exit 3 (`review.via: terminal`) or exit 1 (no gh, no login, no origin): say why in one
+   title, body and every comment). It commits `request.md`, pushes `factory/<slug>`, creates the run's
+   GitHub issue from the request when the run has none (the issue is the feature's source of truth),
+   opens the draft PR on it (`ship.pr_open`, `Part of #<n>`) and writes its description; the issue is
+   `planning` and the PR `building`. From here the person follows the planning on the PR and is asked on
+   the issue. Exit 3 (`review.via: terminal`) or exit 1 (no gh, no login, no origin): say why in one
    line and use the terminal gates below; everything else in these stages is the same.
 3. Retrieval: spawn `learnings-researcher`, purpose `planning`, with the feature request; it returns past
    lessons from `docs/solutions/` (or the configured docs_root). Skip when `learning.enabled` is false.
@@ -25,12 +27,6 @@
    "factory: fix run <slug> started: <PR link>. Nothing is needed from you until factory asks here." on
    stdin; on a terminal run `gh issue comment <n> --body "factory: fix run <slug> started on branch
    factory/<slug>"`; for a local issue add `run: <slug>` to its file.
-   **`issues.flow` set** (`bash $S/state.sh config .issues.flow.approved` is not empty, and the run has
-   a GitHub issue): the project's own issue flow approves the plan, from the issue's body. Give the
-   planner the issue's current body (`gh issue view <n> --json body --jq .body`) and the doc at
-   `issues.flow.plan_doc`, and have it also write `issue-plan.md`: the issue's whole new body in that
-   doc's format, keeping the sections the person wrote, with the PRD's stories, criteria and decisions
-   in the sections the doc names.
 6. Check the files exist and `jq -e '.criteria | length > 0' contract.json`. Commit:
    `factory(<slug>): 1 plan`.
 7. PR run (`bash $S/pr.sh enabled`): `bash $S/pr.sh publish plan` with the planner's JSON report on
@@ -48,11 +44,8 @@
      the findings, and the person can add corrections at any time.
    - Otherwise: `bash $S/pr.sh request-approval prd`, then tell the user in one line that the plan
      waits for them on the issue (the request's link), and run `bash $S/pr.sh wait prd` in the
-     background (Bash `run_in_background`). Don't ask in the terminal. With `issues.flow`, the request
-     goes through the project's own flow: if the issue doesn't take a plan yet, factory asks the owner
-     on the issue to accept the idea first; once they have, `wait` writes `issue-plan.md` into the
-     issue's body and submits it, and the gate passes when the issue carries an `issues.flow.approved`
-     label. When it exits, read its JSON:
+     background (Bash `run_in_background`). Don't ask in the terminal. The PR and the issue are
+     `blocked` until the person replies. When it exits, read its JSON:
      - `approved`: the approval is already recorded against the requested SHA (`state.sh approve`
        refuses it from the terminal on a PR run). When `override` is true, record it:
        `state.sh history '.issues += [{stage: 2, found_by: "human", class: "override", findings: $f}]'
@@ -79,8 +72,7 @@
    with `pr.sh ask`, SKILL.md "Human gates").
 2. Spawn `planner` with the reviewer's findings and the human's feedback file verbatim (on a PR run,
    each correction keeps its author, link and file:line). It revises all three files and lists, per
-   finding and per correction, what it changed or why it disagrees (and `issue-plan.md` too, with
-   `issues.flow`). Commit the revision
+   finding and per correction, what it changed or why it disagrees. Commit the revision
    (`factory(<slug>): 3 prd round <n>`); on a PR run, then `bash $S/pr.sh publish plan` with its
    report, so the PR shows what changed and how each finding was answered.
 3. Self-improvement, per `learning.md`:

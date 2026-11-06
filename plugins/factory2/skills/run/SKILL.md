@@ -1,7 +1,7 @@
 ---
 name: run
-description: Run one feature or bugfix through factory's 8 stages (plan, PRD review, PRD fixes, test-first implementation, review, evidence for human approval, merge and deploy, monitor), or resume a run. A bugfix run starts from a tracker issue (--issue), such as one filed by monitoring. Use when the user asks to build a feature or fix an issue with factory or runs /factory2:run.
-argument-hint: "<feature request | slug | --issue <ref>> [--from <stage>]"
+description: Run one feature or bugfix through factory's 8 stages (plan, PRD review, PRD fixes, test-first implementation, review, docs and evidence for human approval, merge and deploy, monitor), or resume a run. A bugfix run starts from a tracker issue (--issue), such as one filed by monitoring. Use when the user asks to build a feature or fix an issue with factory or runs /factory2:run.
+argument-hint: "[feature request | slug | --issue <ref>] [--from <stage>]"
 disable-model-invocation: true
 model: opus
 effort: medium
@@ -31,13 +31,16 @@ fail from exit codes. Arguments: `$ARGUMENTS`.
    shipped the regression). It is a normal run through every stage and gate; stages-1-3.md and
    stages-7-8.md say what differs. When it asks for a feature, it is a feature request (below) that
    tracks the issue: `bash $S/state.sh start <slug> --issue <ref> --feature`, and its body and comments
-   are the request. Either way the issue carries the run's stage label from then on (`state.sh start`
-   and `stage` set it; GUIDE "Following a feature on its issue").
+   are the request. Either way the issue is the feature's source of truth from then on: its status
+   follows the run (skills/issue-flow).
    Otherwise it is a **feature request**: derive a short kebab-case slug (≤ 40 chars), confirm it in one
-   line, then `bash $S/state.sh start <slug>`. A refusal because another run is active means one run per
+   line, then `bash $S/state.sh start <slug>`; `pr.sh open` (stage 1) creates its issue from the request.
+   **No arguments**: list the issues waiting to be built (`gh issue list --label todo`), one line each,
+   and offer `/factory2:run --issue <n>` for each; start none on your own. A refusal because another run is active means one run per
    checkout: tell the user to finish it, or start a parallel run with `claude --worktree`.
-3. Open incidents: list open issues labelled `factory-incident` (`gh issue list --label
-   factory-incident --state open`, or `.factory/incidents/I-*.md` with `status: open`) that no bugfix
+3. Open incidents: list open issues titled `Incident: …` (`gh issue list --state open --search
+   'Incident in:title'`, keeping titles that start with `Incident: `; or `.factory/incidents/I-*.md`
+   with `status: open`) that no bugfix
    run claims yet (no `.factory/runs/*/state.json` or `.factory/history/*.json` with that `issue`). Show
    them in one line each and offer `/factory2:run --issue <ref>` for each (in `claude --worktree` when a
    run still holds this checkout, such as the one being monitored); never start one on your own.
@@ -70,9 +73,9 @@ reference file when you enter it, not before:
 | Stage | Reference |
 |---|---|
 | 1 Analyze and plan · 2 PRD review · 3 Fix PRD | `${CLAUDE_SKILL_DIR}/references/stages-1-3.md` |
-| 4 Implement (tests first, freeze, code, docs, draft PR) | `${CLAUDE_SKILL_DIR}/references/stage-4.md` |
+| 4 Implement (tests first, freeze, code, draft PR) | `${CLAUDE_SKILL_DIR}/references/stage-4.md` |
 | 5 Review and fix | `${CLAUDE_SKILL_DIR}/references/stage-5.md` |
-| 6 Evidence and human approval | `${CLAUDE_SKILL_DIR}/references/stage-6.md` |
+| 6 Docs, evidence and human approval | `${CLAUDE_SKILL_DIR}/references/stage-6.md` |
 | 7 Merge and deploy · 8 Monitor | `${CLAUDE_SKILL_DIR}/references/stages-7-8.md` |
 | Learning capture (used by every stage) | `${CLAUDE_SKILL_DIR}/references/learning.md` |
 
@@ -80,27 +83,27 @@ reference file when you enter it, not before:
 Two gates stop for the user: stage 2 (`prd`: the plan, meaning what will be built and how, before any
 code) and stage 6 (`evidence`, before merge). Deploy and rollback have no gate: once the evidence is
 approved, stage 7 merges, deploys and smoke-tests on its own, and a rollback runs when the smoke test
-fails or the triager recommends one. **On a run with a draft PR** (`bash $S/pr.sh enabled`), every
-approval is given on GitHub, never in the terminal. Everything that needs the person is asked where
-they decide *what* is built: on the run's issues (`state.sh get .issue`, plus `state.sh link-issue
-<n>` for each other issue the PR names), or on the PR when the run has no issue. The PR is *how*: a
-draft while in progress, and the planning trail (`pr.sh publish`).
+fails or the triager recommends one.
+
+**On a run with a draft PR** (`bash $S/pr.sh enabled`), every approval is given on GitHub, never in the
+terminal. The run's issue is the feature's only source of truth (skills/issue-flow): its status follows
+the stages (`state.sh stage`: 1-3 `planning`, 4 `building`, 5 `testing`, 6-7 `documenting`; closed once its
+last PR merges). The PR is `building`, or `blocked` while the person must act: every such request is a
+comment on the issue that names the PR, links the details on it, and gives the exact reply with examples.
 1. `bash $S/pr.sh request-approval <prd|evidence>` (evidence with `--details -` and a here-document: the
-   review-pack link and the criteria table). The request shows the content inline (the criteria and
-   plan.md for prd) and exactly what to reply, with examples: the approval command
-   (`issues.commands.approve`), change requests naming the run's criteria. It labels the issues
-   `factory2:awaiting-approval` and `factory2:awaiting-<gate>`. With `issues.flow` set, the prd gate goes
-   through the project's own issue flow instead (stages-1-3.md).
+   review-pack link and the criteria table). The details go on the PR (the criteria and plan.md for prd);
+   the request goes on the issue with the reply (`/approve`) and change requests naming the run's
+   criteria. The PR and the issue are `blocked` until the person replies.
 2. Tell the user in one line that the request waits on the issue (link), then run `bash $S/pr.sh wait
    <gate>` in the background (Bash `run_in_background`). If the user says they replied, run
    `bash $S/pr.sh feedback <gate>` once instead.
-3. Its JSON: `approved` means the approval is recorded (with the approver and comment link, and the
-   label `factory2:approved-<gate>`); `changes` means the person's comments are in `feedback_file`,
-   committed, and the request is closed; `ignored` lists comments from people `review.reviewers`
-   doesn't allow: mention them, never act on them.
+3. Its JSON: `approved` means the approval is recorded (with the approver and comment link);
+   `changes` means the person's comments (on the issue or the PR) are in `feedback_file`, committed, and
+   the request is closed; either way the PR is `building` again. `ignored` lists comments from people
+   `review.reviewers` doesn't allow: mention them, never act on them.
 `state.sh approve` refuses an approval without the person's comment, and the guard blocks `gh pr comment`,
-`gh pr review`, `gh issue comment` on the run's issues, comment and label writes through `gh api`, and
-changes to `factory2` labels: post there only through `pr.sh`. If the user approves in the terminal,
+`gh pr review`, `gh issue comment` on the run's issue, comment and label writes through `gh api`, and
+changes to the issue-flow labels: post only through `pr.sh`. If the user approves in the terminal,
 answer with the request's link.
 **Escalations** (a budget or round limit, a conflict, anything you would otherwise ask in the terminal)
 on a PR run are asked on the issue too: `bash $S/pr.sh ask` with the question on stdin: what happened
@@ -108,6 +111,8 @@ on a PR run are asked on the issue too: `bash $S/pr.sh ask` with the question on
 ``Reply `continue` for one more review round, or `accept R3.P1` to ship with that finding open.`` Then
 `bash $S/pr.sh answer` in the background; act on the reply saved in its `file`. Something the person
 should know but need not answer (a bugfix run started, the deploy, a rollback): `bash $S/pr.sh notify`.
+**The user stops the run** before merge: `bash $S/state.sh end --stop` closes the PR, and the issue is
+`todo` again unless another PR works on it.
 
 **On a run without a PR** (review.via terminal, or no gh, login or origin):
 1. Show a one-screen summary: what changed, the findings with severity, spend so far

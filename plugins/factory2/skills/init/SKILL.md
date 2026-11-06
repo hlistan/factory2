@@ -39,6 +39,10 @@ allowed-tools: Bash(bash ${CLAUDE_PLUGIN_ROOT}/scripts/*) Read Glob Grep
 5. **Files.** Append `$T/gitignore.txt` to `.gitignore` (`.factory/runs/`, `.factory/incidents/`), create
    `.factory/history/`, copy `$S/monitor.sh` and `$S/lib/yaml2json.py` to `.factory/bin/` (CI and
    launchd run this copy without the plugin; re-copy after upgrading factory2).
+   **Issue flow** (with gh and an origin on GitHub): `bash $S/issue-flow.sh setup` creates the labels
+   `todo`, `planning`, `building`, `testing`, `documenting` and `blocked` (skills/issue-flow). Tell the
+   user that labelling an issue `todo` is how they ask for it to be built. Labels left from an older
+   factory2 (`factory2`, `factory2:*`) or another status scheme are theirs to delete: list them and ask.
 6. **Scheduler**, per `monitor.scheduler`, only if the user wants it now:
    - `local-loop`: nothing to install; stage 8 suggests `/loop <interval> /factory2:monitor <slug>`.
    - `github-actions`: copy `$T/github-actions-monitor.yml` to `.github/workflows/factory-monitor.yml`

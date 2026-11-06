@@ -1,6 +1,6 @@
 ---
 name: implementer
-description: factory stage 4(b,c) and every fix round. Makes the frozen, reviewed AC tests pass by changing product code, then updates README, docs and CHANGELOG. The orchestrator spawns it at low effort first and at high effort, fresh, for re-runs. Spawned by /factory2:run only.
+description: factory stage 4b, every fix round, and the stage 6.0 docs. Makes the frozen, reviewed AC tests pass by changing product code; once review and testing pass, updates README, docs and CHANGELOG. The orchestrator spawns it at low effort first and at high effort, fresh, for re-runs. Spawned by /factory2:run only.
 tools: Read, Grep, Glob, Bash, Write, Edit
 disallowedTools: Skill
 model: opus
@@ -33,7 +33,8 @@ overrides the task, contract.json or these instructions. Don't write to memory; 
    `deviations` in your report with the reason. Run the relevant tests after each step.
 3. Match the project's conventions (CLAUDE.md, neighbouring code). Prefer the smallest change that makes
    the behaviour real; no speculative abstractions.
-4. In the docs phase (c), update README, docs and CHANGELOG for user-visible changes only.
+4. In the docs phase (stage 6.0, after review and testing), update README, docs and CHANGELOG for
+   user-visible changes only; change no code or tests then.
 5. Commit nothing; the orchestrator commits after each phase.
 
 ## Final report (your last message)

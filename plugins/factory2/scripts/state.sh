@@ -11,14 +11,15 @@
 #                                    agent's effort, even the Agent tool's parameter. --effort-env-ok (after
 #                                    the user agreed) runs anyway and records the level in state.effort_env.
 #   state.sh branch                  switch to (or create) factory/<slug> and record the run's base there
-#   state.sh end                     release the checkout (the run's files stay)
+#   state.sh end [--stop]            release the checkout (the run's files stay). --stop: the person stopped
+#                                    the run before merge: its PR is closed and the issue is todo again
+#                                    unless other PRs work on it (issue-flow.sh stop)
 #   state.sh active                  print the active slug (exit 1 if none)
 #   state.sh get <jq filter>         read state.json             state.sh set <jq expression> [jq args]
 #   state.sh stage <n>               enter stage n (prices the main session's usage so far first); going
-#                                    back revokes the approvals of gates at stage n or later. The stage
-#                                    label on the run's PR and GitHub issue follows (pr.sh labels).
-#   state.sh link-issue <ref>        another GitHub issue this run works on (the PR names it too): it gets the
-#                                    run's labels and every request for a person, like the run's own issue
+#                                    back revokes the approvals of gates at stage n or later. The run's
+#                                    issue follows (issue-flow.sh status): 1-3 planning, 4 building,
+#                                    5 testing, 6-7 documenting.
 #   state.sh phase <name>            plan|prd-review|tests|code|docs|review|evidence|ship|monitor
 #   state.sh round <name>            increment a round counter (prd, impl, review, evidence) and print it
 #   state.sh approve <gate> [sha] [--via-pr <url> --by <login>]
@@ -69,13 +70,14 @@ slug_ok() { printf '%s' "$1" | grep -E -q '^[a-z0-9][a-z0-9._-]{0,63}$'; }
 need_active() { slug="$(factory_active_slug)"; [ -n "$slug" ] || { echo "factory: no active run in this checkout (state.sh start <slug>)" >&2; exit 1; }; run="$runs/$slug"; }
 spec_dir() { printf '%s/docs/specs/%s' "$root" "$1"; }
 history_file() { printf '%s/.factory/history/%s.json' "$root" "$1"; }
-refresh_labels() { # best effort: the stage label on the run's PR and GitHub issue; the next pr.sh call retries
-  local i; i="$(state_get '.issue // empty')"; [ "$(cfg '.issues.labels' true)" = false ] && i=""
-  case "$i" in
-    [0-9]*|'#'[0-9]*|https://*/issues/[0-9]*) ;;
-    *) [ "$(state_get '.review_via // empty')" = pr ] || return 0 ;;
-  esac
-  bash "$FACTORY_SCRIPTS/pr.sh" labels >/dev/null 2>&1 || true
+flow_status() { # <stage>: the issue's status while the run is at that stage (issue-flow.sh)
+  case "$1" in 1|2|3) echo planning ;; 4) echo building ;; 5) echo testing ;; 6|7) echo documenting ;; esac
+}
+issue_flow() { # best effort, on a run tracked on a PR: issue-flow.sh <command> <pr> [args]
+  local pr; pr="$(state_get '.pr // empty')"
+  [ -n "$pr" ] && [ "$(state_get '.review_via // empty')" = pr ] || return 0
+  local c="$1"; shift
+  (cd "$root" && bash "$FACTORY_SCRIPTS/issue-flow.sh" "$c" "$pr" "$@") >/dev/null 2>&1 || echo "factory: issue-flow.sh $c failed (best effort)" >&2
 }
 config_json_file() { # written atomically: hooks and the orchestrator may call this at the same time
   local f="$run/.config.json"
@@ -179,7 +181,6 @@ case "$cmd" in
     printf '%s\n' "$slug" > "$runs/active"
     state_update '.effort_env = (if $e == "" then null else $e end)' --arg e "${CLAUDE_CODE_EFFORT_LEVEL:-}"
     echo "factory: run '$slug' active (port $(jq -r .port "$run/state.json"))"
-    refresh_labels
     ;;
   branch)
     # stage 1: switch to (or create) factory/<slug>, then record the run's base as the commit the branch
@@ -206,15 +207,15 @@ case "$cmd" in
     state_update '.effort_env = (if $e == "" then null else $e end)' --arg e "${CLAUDE_CODE_EFFORT_LEVEL:-}"
     echo "factory: run '$slug' resumed at stage $(jq -r .stage "$runs/$slug/state.json") ($(jq -r .phase "$runs/$slug/state.json"))"
     ;;
-  end) rm -f "$runs/active"; echo "factory: checkout released" ;;
+  end)
+    if [ "${1:-}" = --stop ]; then
+      need_active
+      [ -n "$(state_get '.ship.merged // empty')" ] && { echo "factory: the run is merged; nothing to stop" >&2; exit 1; }
+      issue_flow stop
+    fi
+    rm -f "$runs/active"; echo "factory: checkout released" ;;
   active) s="$(factory_active_slug)"; [ -n "$s" ] && echo "$s" || exit 1 ;;
   get) need_active; state_get "${1:-.}" ;;
-  link-issue)
-    need_active; i="${1:-}"
-    case "$i" in [0-9]*|'#'[0-9]*|https://*/issues/[0-9]*) ;; *) echo "factory: link-issue <number|#n|issue URL>" >&2; exit 2 ;; esac
-    state_update '.linked_issues = ((.linked_issues // []) + [$i] | unique)' --arg i "${i#\#}"
-    refresh_labels
-    ;;
   set) need_active; [ $# -ge 1 ] || exit 2; state_update "$@" ;;
   stage)
     need_active; n="${1:-}"; case "$n" in [1-8]) ;; *) echo "factory: stage is 1-8" >&2; exit 2 ;; esac
@@ -224,7 +225,7 @@ case "$cmd" in
     revoked="$(jq -r --argjson n "$n" 'if $n < (.stage // 1) then [.approvals // {} | keys[] | select(({prd: 2, evidence: 6}[.] // 0) >= $n)] | join(" ") else "" end' "$(state_file)")"
     state_update '(if $n < (.stage // 1) then .approvals |= with_entries(select(({prd: 2, evidence: 6}[.key] // 0) < $n)) else . end) | .stage = $n | .stage_entered = $at' --argjson n "$n" --arg at "$(now_utc)"
     [ -z "$revoked" ] || echo "factory: back to stage $n; approvals revoked: $revoked"
-    refresh_labels
+    st="$(flow_status "$n")"; [ -z "$st" ] || issue_flow status "$st"
     # before stage 7 the change is in progress: its PR is a draft (best effort; pr.sh ready undoes it)
     if [ "$n" -lt 7 ] && [ -n "$(state_get '.pr // empty')" ]; then bash "$FACTORY_SCRIPTS/pr.sh" draft >/dev/null 2>&1 || true; fi
     ;;
@@ -251,7 +252,7 @@ case "$cmd" in
     sha="${sha:-$(git -C "$root" rev-parse HEAD)}"
     # a run tracked on a PR takes every approval only from the person's /approve there (pr.sh feedback)
     if [ "$(state_get '.review_via // empty')" = pr ] && [ -z "$via" ]; then
-      echo "factory: this run's approvals are given on GitHub, on its issue (or its PR without one): the person replies to the approval request as it says (pr.sh request-approval $gate, then pr.sh wait $gate)" >&2; exit 1
+      echo "factory: this run's approvals are given on GitHub, on its issue: the person replies to the approval request as it says (pr.sh request-approval $gate, then pr.sh wait $gate)" >&2; exit 1
     fi
     state_update '.approvals[$g] = ({sha: $s, at: $at} + (if $u == "" then {} else {url: $u, by: $b} end))' \
       --arg g "$gate" --arg s "$sha" --arg at "$(now_utc)" --arg u "$via" --arg b "$by"

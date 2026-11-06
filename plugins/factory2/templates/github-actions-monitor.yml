@@ -1,7 +1,7 @@
 # factory2 production monitoring (monitor.scheduler: github-actions).
 # /factory2:init copies this to .github/workflows/factory-monitor.yml. It runs the committed
-# .factory/bin/monitor.sh on a schedule. It only detects and files: a failing check opens an issue labelled
-# factory-incident; the next local /factory2:run or /factory2:status picks it up for triage. No Claude
+# .factory/bin/monitor.sh on a schedule. It only detects and files: a failing check opens an issue titled
+# "Incident: ..." and labelled todo; the next local /factory2:run or /factory2:status picks it up for triage. No Claude
 # runs here, so CI needs no Anthropic credential.
 #
 # Secrets your monitor.checks need (URLs, tokens) go in the repository's Actions secrets and the env below.

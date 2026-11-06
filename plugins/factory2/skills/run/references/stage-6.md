@@ -1,8 +1,17 @@
-# Stage 6: evidence and human approval
+# Stage 6: docs, evidence and human approval
 
-`S=${CLAUDE_PLUGIN_ROOT}/scripts`. `state.sh stage 6`, `phase evidence`. The evidence skill describes the
-capture details; `evidence.sh` does the work.
+`S=${CLAUDE_PLUGIN_ROOT}/scripts`. `state.sh stage 6` (the issue is `documenting`). The evidence skill
+describes the capture details; `evidence.sh` does the work.
 
+## 6.0 Docs (`phase docs`)
+The behaviour is now reviewed and tested; document it. Spawn `implementer` (`state.sh role implementer`)
+in its docs phase: update README, docs and CHANGELOG for the user-visible changes in contract.json, and
+nothing else. Then `bash $S/state.sh verify-freeze` and `bash $S/run-checks.sh --set fast` (a docs gate
+the project has is a check like any other): any failure goes back to the same implementer once, then
+to the user. Commit `factory(<slug>): 6.0 docs`. Every return to stage 6 after a fix loop runs 6.0 again,
+so the docs match what is approved.
+
+## 6.1 Evidence (`phase evidence`)
 1. `n=$(bash $S/state.sh round evidence)`. Beyond `limits.evidence_rounds`: stop and ask the user.
 2. `bash $S/evidence.sh capture`: runs the `@AC-n` e2e specs under `playwright.demo.config.ts` (a
    video with the test title, steps and actions overlaid, and a screenshot, per test and per
