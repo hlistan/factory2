@@ -74,6 +74,40 @@ t_has "$OUT" "AC-2	PASSES-EARLY" "flags a test passing before the code exists"
 t_has "$OUT" "AC-11	NOT-VISIBLE" "flags a criterion with no visible test"
 t_hasnt "$OUT" "AC-1	" "a correctly failing test isn't flagged"
 
+# --base: an AC-tagged test already in the base commit is an earlier feature's (same AC numbers) and
+# decides nothing; this run's own tests, and an old test the run retagged, do.
+g="$T_TMP/repo"; mkdir -p "$g/web" "$g/api"
+git -C "$g" init -q
+printf 'func TestAC_1_FunnelIsTheViewsRow(t *testing.T) {}\n' > "$g/api/wizard_test.go"
+printf 'test("are Funnel and Feedback under a Wizard group @AC-2", () => {});\ntest("keeps focus @AC-3", () => {});\n' > "$g/web/nav.test.ts"
+git -C "$g" add -A && git -C "$g" -c user.email=t@t -c user.name=t commit -q -m base
+base="$(git -C "$g" rev-parse HEAD)"
+mkdir -p "$T_TMP/scoped/go" "$T_TMP/scoped/web"
+cat > "$T_TMP/scoped/go/integration.xml" <<'X'
+<testsuite><testcase classname="m/api" name="TestAC_1_FunnelIsTheViewsRow"/><testcase classname="m/api" name="TestAC_1_FunnelIsTheViewsRow/sub"/><testcase classname="m/api" name="TestAC_1_IssuesIsTheOneTable"><failure message="no table"/></testcase></testsuite>
+X
+cat > "$T_TMP/scoped/web/unit.xml" <<'X'
+<testsuite><testcase classname="nav.test.ts" name="the Wizard pages &gt; are Funnel and Feedback under a Wizard group @AC-2"/><testcase classname="inbox.spec.ts" name="on a wide screen › keeps focus @AC-3 @AC-4"/></testsuite>
+X
+printf '{"criteria":[{"id":"AC-1","text":"a","test_ids":[],"passes":false},{"id":"AC-2","text":"b","test_ids":[],"passes":false},{"id":"AC-4","text":"d","test_ids":[],"passes":false}]}' > "$c"
+run python3 -I "$J" red "$c" "$T_TMP/scoped"
+t_has "$OUT" "AC-2	PASSES-EARLY" "without --base an old test passes early"
+run python3 -I "$J" red "$c" "$T_TMP/scoped" --base "$base" --root "$g"
+t_code 1 "red with --base still flags AC-2, which has only an old test"
+t_hasnt "$OUT" "AC-2	PASSES-EARLY" "an old test is not a pass before the code exists"
+t_has "$OUT" "AC-2	NOT-VISIBLE" "AC-2 has no test of this run"
+t_has "$OUT" "AC-1	PRE-EXISTING	m/api::TestAC_1_FunnelIsTheViewsRow existed" "names the old Go test"
+t_has "$OUT" "m/api::TestAC_1_FunnelIsTheViewsRow/sub existed" "an old test's subtest is old too"
+t_has "$OUT" "AC-2	PRE-EXISTING	nav.test.ts::the Wizard pages > are Funnel" "names the old Vitest test"
+t_hasnt "$OUT" "AC-4	NOT-VISIBLE" "a test whose tagged title is new counts (its title changed)"
+run python3 -I "$J" sync "$c" "$T_TMP/scoped" --base "$base" --root "$g"
+t_eq "$(p AC-1)" "false" "AC-1 is decided by its own failing test, not the old passing one"
+t_eq "$(jq -r '.criteria[0].test_ids | join(",")' "$c")" "m/api::TestAC_1_IssuesIsTheOneTable" "AC-1's test_ids are this run's only"
+t_eq "$(p AC-2)" "false" "AC-2 with only an old test does not pass"
+t_eq "$(p AC-4)" "true" "AC-4 passes on this run's test"
+run python3 -I "$J" sync "$c" "$T_TMP/scoped" --base "$base"
+t_code 2 "--base without --root is refused"
+
 printf '{"criteria":[{"id":"criterion one"}]}' > "$c"
 run python3 -I "$J" sync "$c" "$FIX/junit/mixed"
 t_code 2 "rejects ids that aren't AC-<n>"

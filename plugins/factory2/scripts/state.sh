@@ -52,6 +52,12 @@ set -u
 factory_need git jq python3
 
 root="$FACTORY_ROOT_DIR"
+# contract-sync and the red check count only this run's tests: an AC-tagged test already in the base
+# commit is an earlier feature's, which may use the same AC numbers (junit.py --base).
+junit_scope() {
+  local b; b="$(jq -r '.base // empty' "$run/state.json" 2>/dev/null)"
+  scope=(); [ -z "$b" ] || scope=(--base "$b" --root "$root")
+}
 cmd="${1:-}"; [ $# -gt 0 ] && shift
 runs="$root/.factory/runs"
 
@@ -308,12 +314,12 @@ case "$cmd" in
     factory_py "$FACTORY_LIB/freeze.py" verify --root "$root" --config "$cj" --run "$run" --plan "$plan" "$@"
     ;;
   contract-sync)
-    need_active
+    need_active; junit_scope
     factory_py "$FACTORY_LIB/junit.py" lint "$run/reports" || true
-    factory_py "$FACTORY_LIB/junit.py" sync "$(spec_dir "$slug")/contract.json" "$run/reports"
+    factory_py "$FACTORY_LIB/junit.py" sync "$(spec_dir "$slug")/contract.json" "$run/reports" ${scope[@]+"${scope[@]}"}
     ;;
   red-check)
-    need_active
+    need_active; junit_scope
     factory_py "$FACTORY_LIB/junit.py" lint "$run/reports" || true
     [ $# -eq 0 ] || [ "$1" = "--test" ] || { echo "factory: red-check [--test <name> ...]" >&2; exit 2; }
     if [ "${1:-}" = "--test" ]; then
@@ -324,7 +330,7 @@ case "$cmd" in
       done
       factory_py "$FACTORY_LIB/junit.py" red-tests "$run/reports" "${names[@]}"
     else
-      factory_py "$FACTORY_LIB/junit.py" red "$(spec_dir "$slug")/contract.json" "$run/reports"
+      factory_py "$FACTORY_LIB/junit.py" red "$(spec_dir "$slug")/contract.json" "$run/reports" ${scope[@]+"${scope[@]}"}
     fi
     ;;
   calibrate)

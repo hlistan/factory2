@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 """Maps JUnit XML test results to acceptance criteria. The harness, never an agent, sets `passes`.
 
-  junit.py sync <contract.json> <reports dir>
+  junit.py sync <contract.json> <reports dir> [--base <commit> --root <repo>]
       Sets each criterion's test_ids and passes: passes is true only when at least one test names the
       criterion and every test that names it passed. Prints one line per criterion.
       Exit 0 when every criterion passes, 1 otherwise, 2 on bad input.
-  junit.py red <contract.json> <reports dir>
+  junit.py red <contract.json> <reports dir> [--base <commit> --root <repo>]
       Before the code exists: lists AC tests that already pass (suspicious: they may assert nothing, or
       test behaviour that already exists) and criteria with no visible test (the suite may not have
       collected). Exit 0 when nothing is flagged, 1 otherwise.
@@ -21,6 +21,10 @@ A test names criterion n when its name, class name or a property value contains 
 (free-text titles: Playwright, Vitest, Jest, pytest ids; not followed by a digit, letter, - or _) or
 `AC_n` (function names: Go, Swift, Python; not followed by a digit), preceded by a non-letter or by
 `Test`/`test`. A suffixed tag (`@AC-1-extra`) names no criterion.
+With --base, sync and red count only this run's tests: a tagged test whose tagged name (the Go function
+name before any `/subtest`, or the title segment that carries the tag) already appears verbatim in the
+base commit's tree belongs to an earlier feature that used the same AC numbers. It is listed as
+PRE-EXISTING and decides nothing. A test the run retagged or renamed has a new name, so it counts.
 Every *.xml file under the reports directory is read; a testcase with <failure> or <error> failed, one
 with <skipped> was skipped (and does not pass). For sync, a test id that several reports hold fails if any
 failed it, passes if any passed it, and is skipped only when none ran it.
@@ -28,6 +32,7 @@ failed it, passes if any passed it, and is skipped only when none ran it.
 import json
 import os
 import re
+import subprocess
 import sys
 import xml.etree.ElementTree as ET
 
@@ -76,6 +81,50 @@ def criteria_of(case):
     return {int(m.group(1) or m.group(2)) for m in TAG.finditer(case["text"])}
 
 
+TITLE_SEP = re.compile(r"\s+(?:›|>)\s+")
+
+
+def tagged_name(case):
+    """The part of a test's name that carries its tag: a Go function name without its subtest, or the
+    innermost title segment (Playwright joins describe titles with ›, Vitest with >) that has a tag."""
+    name = case["name"]
+    if re.match(r"[Tt]est", name) and "/" in name and " " not in name.split("/", 1)[0]:
+        name = name.split("/", 1)[0]
+    for seg in reversed(TITLE_SEP.split(name)):
+        if TAG.search(seg):
+            return seg.strip()
+    return None
+
+
+def pre_existing(cases, root, base):
+    """Ids of tagged tests whose tagged name is already in the base commit's tree (another feature's)."""
+    if not base:
+        return set()
+    names = {}
+    for c in cases:
+        if criteria_of(c):
+            n = tagged_name(c)
+            if n:
+                names.setdefault(n, []).append(c["id"])
+    if not names:
+        return set()
+    pat = "\n".join(sorted(names)) + "\n"
+    r = subprocess.run(["git", "-C", root, "grep", "-I", "-F", "-h", "-o", "-f", "-", base, "--"],
+                       input=pat, capture_output=True, text=True)
+    if r.returncode not in (0, 1):
+        raise ValueError(f"git grep at {base}: {r.stderr.strip()}")
+    seen = set(r.stdout.splitlines())
+    return {i for n, ids in names.items() if n in seen for i in ids}
+
+
+def own_cases(cases, root, base):
+    old = pre_existing(cases, root, base)
+    for c in sorted({c["id"] for c in cases if c["id"] in old}):
+        for n in sorted(criteria_of(next(x for x in cases if x["id"] == c))):
+            print(f"AC-{n}\tPRE-EXISTING\t{c} existed at the base (an earlier feature's test); not counted")
+    return [c for c in cases if c["id"] not in old]
+
+
 def ac_number(cid):
     m = re.fullmatch(r"AC-(\d+)", str(cid).strip())
     return int(m.group(1)) if m else None
@@ -105,9 +154,9 @@ def merged(cases):
     return list(out.values())
 
 
-def cmd_sync(contract, reports):
+def cmd_sync(contract, reports, root=".", base=None):
     data, crit = load_contract(contract)
-    cases = merged(load_cases(reports))
+    cases = own_cases(merged(load_cases(reports)), root, base)
     by_ac = {}
     for c in cases:
         for n in criteria_of(c):
@@ -137,9 +186,9 @@ def cmd_sync(contract, reports):
     return 0 if all_pass and not stray else 1
 
 
-def cmd_red(contract, reports):
+def cmd_red(contract, reports, root=".", base=None):
     _, crit = load_contract(contract)
-    cases = load_cases(reports)
+    cases = own_cases(load_cases(reports), root, base)
     flagged = 0
     for c in crit:
         n = ac_number(c["id"])
@@ -201,10 +250,12 @@ def cmd_lint(reports):
 
 def main(argv):
     try:
-        if len(argv) == 4 and argv[1] == "sync":
-            return cmd_sync(argv[2], argv[3])
-        if len(argv) == 4 and argv[1] == "red":
-            return cmd_red(argv[2], argv[3])
+        if len(argv) in (4, 8) and argv[1] in ("sync", "red"):
+            opts = dict(zip(argv[4::2], argv[5::2]))
+            if set(opts) - {"--base", "--root"} or (opts and len(opts) != 2):
+                raise ValueError("give both --base <commit> and --root <repo>, or neither")
+            cmd = cmd_sync if argv[1] == "sync" else cmd_red
+            return cmd(argv[2], argv[3], opts.get("--root", "."), opts.get("--base"))
         if len(argv) >= 4 and argv[1] == "red-tests":
             return cmd_red_tests(argv[2], argv[3:])
         if len(argv) == 3 and argv[1] == "lint":
@@ -213,7 +264,7 @@ def main(argv):
         print(f"junit: {e}", file=sys.stderr)
         return 2
     print(__doc__.strip().split("\n\n")[0], file=sys.stderr)
-    print("usage: junit.py sync|red <contract.json> <reports dir> | junit.py red-tests <reports dir> <name>..."
+    print("usage: junit.py sync|red <contract.json> <reports dir> [--base <commit> --root <repo>] | junit.py red-tests <reports dir> <name>..."
           " | junit.py lint <reports dir>", file=sys.stderr)
     return 2
 
