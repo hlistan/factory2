@@ -179,6 +179,35 @@ printf '# Plan\n\n## Exceptions\n- `eslint.config.js`\n- `left-pad`\n' > "$R/doc
 run bash "$S/state.sh" freeze;                             t_code 0 "re-freeze with a dependency Exception"
 printf '{"lockfileVersion": 3, "x": 1}\n' > "$R/package-lock.json"
 run bash "$S/state.sh" verify-freeze;                      t_code 0 "allowed when a dependency is named"
+# The person raises a round or budget limit mid-run (the run asks them to): the config's `limits` may
+# change, before and after the freeze; any other config change, a check command above all, is refused.
+cfg0="$(cat "$R/.factory/config.yaml")"
+printf '%s\nlimits:\n  prd_rounds: 5\n  budget_usd: 200\n' "$cfg0" > "$R/.factory/config.yaml"
+git -C "$R" commit -qam "raise limits"
+run bash "$S/state.sh" verify-freeze;                      t_code 0 "a raised limit after the freeze verifies"
+run bash "$S/state.sh" freeze;                             t_code 0 "and re-freezes"
+printf 'checks:\n  fast:\n    ok: "false"\nlimits:\n  prd_rounds: 5\n  budget_usd: 200\n' > "$R/.factory/config.yaml"
+run bash "$S/state.sh" verify-freeze;                      t_code 1 "a changed check command is still caught"
+t_has "$OUT" ".factory/config.yaml" "names the config"
+printf '%s\n' "$cfg0" > "$R/.factory/config.yaml"
+git -C "$R" commit -qam "limits back"
+
+R2="$(new_repo)"; export FACTORY_ROOT="$R2"
+write_config "$R2" 'checks:
+  fast:
+    ok: "true"
+limits:
+  prd_rounds: 3'
+mkdir -p "$R2/docs/specs/fl"; printf '# Plan\n\n## Exceptions\n' > "$R2/docs/specs/fl/plan.md"
+git -C "$R2" add -A && git -C "$R2" commit -q -m fixture
+bash "$S/state.sh" start fl >/dev/null
+printf 'checks:\n  fast:\n    ok: "true"\nlimits:\n  prd_rounds: 5\n' > "$R2/.factory/config.yaml"
+git -C "$R2" commit -qam "raise rounds"
+run bash "$S/state.sh" freeze;                             t_code 0 "first freeze accepts limits raised since the base"
+printf 'checks:\n  fast:\n    ok: "true"\n    lint: "true"\nlimits:\n  prd_rounds: 5\n' > "$R2/.factory/config.yaml"
+run bash "$S/state.sh" verify-freeze;                      t_code 1 "an added check command is caught"
+git -C "$R2" checkout -q -- .factory/config.yaml
+export FACTORY_ROOT="$R"
 
 # ------------------------------------------------ red-check --tests (stage 5 fix loop)
 mkdir -p "$R/.factory/runs/fb/reports/unit"

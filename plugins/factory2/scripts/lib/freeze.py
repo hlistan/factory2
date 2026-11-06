@@ -23,6 +23,8 @@ Lists:
   checks  check-defining files (checks.check_defining globs, or defaults per ecosystem) plus
           .factory/config.yaml, always. A file the plan's `## Exceptions` section names may change (never
           .factory/config.yaml). Kinds:
+            config .factory/config.yaml: hashed without its `limits` section, so the person may raise a
+                  round or budget limit mid-run (the run asks them to); every other key stays frozen
             npm   package.json: hashed without its dependency fields; dependency changes are allowed only
                   for names the plan's `## Exceptions` section names
             deps  lockfiles and dependency manifests (go.mod, ...): may change only when the plan's
@@ -128,11 +130,13 @@ def lists_for(root, cfg):
         elif test_pat.search(p) or any(r.match(p) for r in support):
             out.append(("tests", "file", p))
     if os.path.isfile(os.path.join(root, CONFIG_PATH)) and not any(p == CONFIG_PATH for _, _, p in out):
-        out.append(("checks", "file", CONFIG_PATH))
+        out.append(("checks", kind_of(CONFIG_PATH), CONFIG_PATH))
     return out, defining
 
 
 def kind_of(path):
+    if path == CONFIG_PATH:
+        return "config"
     base = os.path.basename(path)
     if base == "package.json":
         return "npm"
@@ -146,7 +150,28 @@ def file_hash(root, path, kind):
         return bytes_hash(f.read(), kind)
 
 
+def config_without_limits(data):
+    """The config's canonical JSON without its `limits` section, or None when it doesn't parse."""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location(
+        "factory_yaml2json", os.path.join(os.path.dirname(os.path.abspath(__file__)), "yaml2json.py"))
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    try:
+        obj = mod.Parser(data.decode("utf-8")).parse()
+    except (mod.YamlError, UnicodeDecodeError):
+        return None
+    if not isinstance(obj, dict):
+        return None
+    obj.pop("limits", None)
+    return json.dumps(obj, sort_keys=True, separators=(",", ":")).encode()
+
+
 def bytes_hash(data, kind):
+    if kind == "config":
+        canon = config_without_limits(data)
+        if canon is not None:
+            data = canon  # otherwise hash the bytes, so any change shows
     if kind == "npm":
         try:
             obj = json.loads(data.decode("utf-8"))
