@@ -111,4 +111,19 @@ t_code 2 "--base without --root is refused"
 printf '{"criteria":[{"id":"criterion one"}]}' > "$c"
 run python3 -I "$J" sync "$c" "$FIX/junit/mixed"
 t_code 2 "rejects ids that aren't AC-<n>"
+
+# A shorter report written over a longer one through a file share that kept the old tail (seen with a
+# Vitest report on a Docker Desktop bind mount): the complete document is read, the tail ignored, with a
+# warning. Other damage still skips the file.
+mkdir -p "$T_TMP/tail"
+printf '%s\n' '<?xml version="1.0" encoding="UTF-8" ?>' \
+  '<testsuites><testsuite name="s"><testcase classname="a.test.ts" name="nav @AC-1"></testcase>' \
+  '</testsuite>' '</testsuites>' 'testcase>' '    </testsuite>' '</testsuites>' > "$T_TMP/tail/unit-web.xml"
+printf '<testsuites><testsuite><testcase name="cut @AC-2"' > "$T_TMP/tail/cut.xml"
+printf '{"criteria":[{"id":"AC-1","text":"x","test_ids":[],"passes":false},{"id":"AC-2","text":"y","test_ids":[],"passes":false}]}' > "$c"
+run python3 -I "$J" sync "$c" "$T_TMP/tail"
+t_eq "$(p AC-1)" "true" "a complete report with the old file's tail after it is read"
+t_has "$ERR" "read the document, ignored the rest" "and says so"
+t_eq "$(p AC-2)" "false" "a cut-off report is still skipped"
+t_has "$ERR" "cut.xml: not valid XML" "and named"
 t_done

@@ -42,6 +42,32 @@ TAG = re.compile(r"(?:(?<![A-Za-z])|(?<=[Tt]est))@?AC(?:-(\d+)(?![\dA-Za-z_-])|_
 SUFFIXED = re.compile(r"@AC-\d+[-A-Za-z_]")
 
 
+def parse_report(path):
+    """The report's root element, or None (with a message) when it isn't XML. A complete document followed
+    by junk is read up to its end, with a warning: a shorter report written over a longer one through a
+    file share that kept the old file's tail (seen with Docker Desktop bind mounts) ends that way, and the
+    complete document is the report just written. Any other damage still skips the file."""
+    try:
+        return ET.parse(path).getroot()
+    except ET.ParseError as e:
+        err = e
+    if "junk after document element" in str(err):
+        line, col = err.position
+        with open(path, encoding="utf-8", errors="replace") as f:
+            lines = f.read().split("\n")
+        doc = "\n".join(lines[:line - 1] + [lines[line - 1][:col]])
+        try:
+            root = ET.fromstring(doc)
+        except ET.ParseError:
+            root = None
+        if root is not None:
+            print(f"junit: {path}: bytes after the document's end ({err}); read the document, ignored the rest",
+                  file=sys.stderr)
+            return root
+    print(f"junit: {path}: not valid XML ({err}); skipped", file=sys.stderr)
+    return None
+
+
 def load_cases(reports):
     cases = []
     if not os.path.isdir(reports):
@@ -51,10 +77,8 @@ def load_cases(reports):
             if not fn.endswith(".xml"):
                 continue
             path = os.path.join(dirpath, fn)
-            try:
-                root = ET.parse(path).getroot()
-            except ET.ParseError as e:
-                print(f"junit: {path}: not valid XML ({e}); skipped", file=sys.stderr)
+            root = parse_report(path)
+            if root is None:
                 continue
             for tc in root.iter("testcase"):
                 name = tc.get("name", "")
