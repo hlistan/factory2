@@ -82,6 +82,10 @@ t_eq "$(bash "$S/state.sh" get .evidence.url)" "https://packs.example.com/review
 write_config "$R" 'evidence: {driver: playwright}'
 run bash "$E" capture;                           t_code 2 "default command without playwright.demo.config.ts"
 t_has "$ERR" "playwright.demo.config.ts is missing" "says what to do"
+# a project's own command (Playwright in a subdirectory or a container) names its config's place itself
+write_config "$R" "evidence:
+  playwright: \"bash $FAKE/pw -c playwright.demo.config.ts\""
+run bash "$E" capture;                           t_code 0 "own command naming the demo config elsewhere"
 
 # driver command: files naming a criterion are shown under it
 write_config "$R" 'evidence:

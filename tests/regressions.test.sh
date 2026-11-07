@@ -189,6 +189,9 @@ run bash "$S/state.sh" freeze;                             t_code 0 "and re-free
 printf 'checks:\n  fast:\n    ok: "false"\nlimits:\n  prd_rounds: 5\n  budget_usd: 200\n' > "$R/.factory/config.yaml"
 run bash "$S/state.sh" verify-freeze;                      t_code 1 "a changed check command is still caught"
 t_has "$OUT" ".factory/config.yaml" "names the config"
+# Stage 6 sets up how the demo is recorded: `evidence` defines no check, so it may change too.
+printf '%s\nevidence:\n  playwright: "bin/in-container npx playwright test"\n' "$cfg0" > "$R/.factory/config.yaml"
+run bash "$S/state.sh" verify-freeze;                      t_code 0 "an evidence setting after the freeze verifies"
 printf '%s\n' "$cfg0" > "$R/.factory/config.yaml"
 git -C "$R" commit -qam "limits back"
 

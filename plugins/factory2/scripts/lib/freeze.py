@@ -23,8 +23,9 @@ Lists:
   checks  check-defining files (checks.check_defining globs, or defaults per ecosystem) plus
           .factory/config.yaml, always. A file the plan's `## Exceptions` section names may change (never
           .factory/config.yaml). Kinds:
-            config .factory/config.yaml: hashed without its `limits` section, so the person may raise a
-                  round or budget limit mid-run (the run asks them to); every other key stays frozen
+            config .factory/config.yaml: hashed without its `limits` and `evidence` sections, which define
+                  no check: the person may raise a round or budget limit mid-run (the run asks them to),
+                  and stage 6 may set up how the demo is recorded; every other key stays frozen
             npm   package.json: hashed without its dependency fields; dependency changes are allowed only
                   for names the plan's `## Exceptions` section names
             deps  lockfiles and dependency manifests (go.mod, ...): may change only when the plan's
@@ -150,8 +151,11 @@ def file_hash(root, path, kind):
         return bytes_hash(f.read(), kind)
 
 
+UNFROZEN_CONFIG_KEYS = ("limits", "evidence")  # neither decides whether a check passes
+
+
 def config_without_limits(data):
-    """The config's canonical JSON without its `limits` section, or None when it doesn't parse."""
+    """The config's canonical JSON without its unfrozen sections, or None when it doesn't parse."""
     import importlib.util
     spec = importlib.util.spec_from_file_location(
         "factory_yaml2json", os.path.join(os.path.dirname(os.path.abspath(__file__)), "yaml2json.py"))
@@ -163,7 +167,8 @@ def config_without_limits(data):
         return None
     if not isinstance(obj, dict):
         return None
-    obj.pop("limits", None)
+    for k in UNFROZEN_CONFIG_KEYS:
+        obj.pop(k, None)
     return json.dumps(obj, sort_keys=True, separators=(",", ":")).encode()
 
 

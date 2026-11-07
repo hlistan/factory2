@@ -3,8 +3,9 @@
 #   evidence.sh capture [--ac <AC-n>]   runs the demo and writes <run>/evidence/ with manifest.json.
 #       evidence.driver playwright (default): `evidence.playwright` (default `npx playwright test -c
 #         playwright.demo.config.ts`) with --grep '@AC-<n>\b' for every criterion in contract.json (or
-#         the one --ac names). The demo config records a video and screenshots per test, one project per
-#         evidence.viewports size, and writes results.json (JSON reporter) into $FACTORY_EVIDENCE.
+#         the one --ac names); only the default command needs the demo config in the project root.
+#         The demo config records a video and screenshots per test, one project per evidence.viewports
+#         size, and writes results.json (JSON reporter) into $FACTORY_EVIDENCE.
 #         Failing tests still leave evidence; capture fails only when nothing was recorded.
 #       evidence.driver command: runs `evidence.capture`, which writes screenshots or recordings into
 #         $FACTORY_EVIDENCE; a file whose path names AC-n (or AC_n) is shown under that criterion.
@@ -70,9 +71,13 @@ case "$cmd" in
     code=0
     case "$driver" in
       playwright)
-        pw="$(cfg '.evidence.playwright' 'npx playwright test -c playwright.demo.config.ts')"
-        case "$pw" in *playwright.demo.config.ts*) [ -f "$root/playwright.demo.config.ts" ] || {
-          echo "factory: playwright.demo.config.ts is missing in the project root; /factory2:init copies it from the plugin's templates" >&2; exit 2; } ;; esac
+        default_pw='npx playwright test -c playwright.demo.config.ts'
+        pw="$(cfg '.evidence.playwright' "$default_pw")"
+        # Only the default command runs the config from the project root; a project's own command
+        # (Playwright under a subdirectory or in a container) names where its demo config lives.
+        if [ "$pw" = "$default_pw" ] && [ ! -f "$root/playwright.demo.config.ts" ]; then
+          echo "factory: playwright.demo.config.ts is missing in the project root; /factory2:init copies it from the plugin's templates" >&2; exit 2
+        fi
         if [ -n "$ac" ]; then grep="@${ac}\\b"
         else
           ids="$(jq -r '[.criteria // [] | .[] | .id | select(test("^AC-[0-9]+$")) | sub("^AC-"; "")] | join("|")' "$spec/contract.json" 2>/dev/null)"

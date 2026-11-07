@@ -22,7 +22,9 @@ so the docs match what is approved.
    `<run>/evidence/run.log` (often a missing browser: `npx playwright install chromium`) and fix it
    before asking anyone to review. Exit 2 is a config problem; a missing demo config: copy
    `${CLAUDE_PLUGIN_ROOT}/templates/playwright.demo.config.ts` to the project root and commit it (it
-   isn't one of the frozen check-defining files).
+   isn't one of the frozen check-defining files). When the project's Playwright runs elsewhere (a subdirectory, a
+   container), put the config there and set `evidence.playwright` to the command that runs it; the
+   config's `evidence` section isn't frozen.
 3. `bash $S/evidence.sh pack`: builds `<run>/review-pack/index.html` (per criterion: text, level, pass,
    its demo tests and a card per viewport with the video and screenshot; then the advisory findings from
    `<run>/advisory.json`, spend by stage and the PR link), self-contained with relative paths. When
