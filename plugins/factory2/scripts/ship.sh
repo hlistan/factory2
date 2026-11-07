@@ -3,7 +3,8 @@
 #   ship.sh verify      the evidence approval is recorded and is an ancestor of HEAD; every commit after it
 #                       (first-parent) is either a conflict-free, unmodified merge of origin/<default_branch>
 #                       or the harness's bookkeeping commit (only .claude/agent-memory/factory-*/, this run's
-#                       .factory/history/<slug>.json and lesson docs under <docs_root>/solutions/, and every
+#                       .factory/history/<slug>.json, lesson docs under <docs_root>/solutions/ and pr.sh's
+#                       record of the PR's comments, docs/specs/<slug>/feedback/*.md, and every
 #                       memory line it adds is one of the run's calibration lines or moved within the
 #                       commit); and every check is green (the frozen
 #                       snapshot; failures known at the baseline are allowed). Records ship.verified.
@@ -61,8 +62,10 @@ def git(*a):
 files = [f for f in git("diff-tree", "--no-commit-id", "--name-only", "-r", c).splitlines() if f]
 allowed_hist = f".factory/history/{slug}.json"
 sol = docs.strip("/") + "/solutions/"
+# pr.sh's record of the person's comments on the run's PR, the approval among them
+fb = re.compile(r"^docs/specs/" + re.escape(slug) + r"/feedback/[A-Za-z0-9_.-]+\.md$")
 bad = [f for f in files if not (re.match(r"^\.claude/agent-memory/factory-[A-Za-z0-9_-]+/(MEMORY|archive)\.md$", f)
-                                or f == allowed_hist or (f.startswith(sol) and f.endswith(".md")))]
+                                or f == allowed_hist or (f.startswith(sol) and f.endswith(".md")) or fb.match(f))]
 if bad:
     print("touches " + ", ".join(bad)); sys.exit(1)
 try:

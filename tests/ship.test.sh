@@ -32,6 +32,10 @@ t_has "$ERR" "no evidence approval" "says why"
 bash "$S/state.sh" approve evidence >/dev/null
 EV="$(git -C "$R" rev-parse HEAD)"
 run bash "$X" verify;                            t_code 0 "nothing after the approval"
+# pr.sh records the approval comment in a commit of its own, after the approved HEAD
+mkdir -p "$R/docs/specs/shipit/feedback"; printf '## From GitHub\n' > "$R/docs/specs/shipit/feedback/evidence-1.md"
+git -C "$R" add -A docs/specs && git -C "$R" commit -q -m "factory(shipit): evidence feedback 1 from GitHub"
+run bash "$X" verify;                            t_code 0 "pr.sh's feedback record after the approval"
 
 # a clean merge of origin/main is covered
 W="$T_TMP/other"; git clone -q "$BARE" "$W"; git -C "$W" config user.email t@e.st; git -C "$W" config user.name t
@@ -55,6 +59,12 @@ printf -- '- 2026-11-03 shipit: a lesson nobody recorded\n' >> "$R/.claude/agent
 git -C "$R" commit -q -am "sneaky memory"
 run bash "$X" verify;                            t_code 1 "a memory line that isn't a calibration line"
 t_has "$ERR" "isn't one of the run's calibration lines" "names the problem"
+git -C "$R" reset -q --hard keep
+printf 'x\n' > "$R/docs/specs/shipit/plan.md"; mkdir -p "$R/docs/specs/other/feedback"; printf 'x\n' > "$R/docs/specs/other/feedback/evidence-1.md"
+git -C "$R" add -A docs/specs && git -C "$R" commit -q -m "spec edits"
+run bash "$X" verify;                            t_code 1 "a spec change or another run's feedback"
+t_has "$ERR" "docs/specs/shipit/plan.md" "names the spec file"
+t_has "$ERR" "docs/specs/other/feedback/evidence-1.md" "names the other run's file"
 git -C "$R" reset -q --hard keep
 printf 'b\n' >> "$R/app.txt"; git -C "$R" commit -q -am "late product change"
 run bash "$X" verify;                            t_code 1 "a product commit after the approval"
