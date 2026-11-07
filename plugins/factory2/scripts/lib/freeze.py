@@ -252,6 +252,7 @@ def at_base(root, base, path):
 def from_default_branch(root, cfg, run, path):
     """True when a frozen file is as origin/<project.default_branch> has it: changed or removed there,
     reviewed and merged on that branch, then merged into the run's branch. Such a change isn't the run's.
+    The config counts when all but its unfrozen sections (limits, evidence) are as the branch has them.
     A removal counts only for a file that existed at the run's base, so removing a file the run added
     (never on the default branch) still counts."""
     branch = ((cfg or {}).get("project") or {}).get("default_branch") or "main"
@@ -272,7 +273,10 @@ def from_default_branch(root, cfg, run, path):
     if upstream is None:
         return False
     with open(here, "rb") as f:
-        return f.read() == upstream
+        data = f.read()
+    if path == CONFIG_PATH:  # the run may set its own limits and evidence; the rest must be main's
+        return bytes_hash(data, "config") == bytes_hash(upstream, "config")
+    return data == upstream
 
 
 def base_check(root, cfg, plan, base):
@@ -349,7 +353,7 @@ def verify(root, run, cfg, plan, lists=("tests", "checks")):
         frozen_paths.add(p)
         if lst not in lists:
             continue
-        if p != CONFIG_PATH and from_default_branch(root, cfg, run, p):
+        if from_default_branch(root, cfg, run, p):
             continue  # reviewed and merged on the default branch, then merged in
         if not os.path.isfile(os.path.join(root, p)):
             if p not in exc:

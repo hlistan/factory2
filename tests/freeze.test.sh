@@ -186,4 +186,18 @@ rm "$R/tests/b.test.ts"
 run bash "$S/state.sh" verify-freeze;                    t_code 1 "deleting a test the run added (never on main) still counts"
 t_has "$ERR$OUT" "tests/b.test.ts" "and is named"
 git -C "$R" checkout -q -- tests/b.test.ts
+# main changes the config too (drops a section); the run keeps its own limits and evidence settings
+bash "$S/state.sh" freeze >/dev/null
+cfg_run="$(cat "$R/.factory/config.yaml")"
+git -C "$R" checkout -q upstream
+printf '%s\nnotes:\n  team: ops\n' "$cfg_run" > "$R/.factory/config.yaml"
+git -C "$R" commit -q -am "main adds a config section"
+git -C "$R" update-ref refs/remotes/origin/main HEAD
+git -C "$R" checkout -q main && git -C "$R" merge -q --no-edit upstream
+printf '%s\nnotes:\n  team: ops\nlimits:\n  review_rounds: 3\nevidence:\n  driver: none\n' "$cfg_run" > "$R/.factory/config.yaml"
+run bash "$S/state.sh" verify-freeze;                    t_code 0 "a config as main has it, plus the run's limits and evidence"
+printf '%s\nnotes:\n  team: ops\nchecks:\n  fast:\n    weaker: "true"\n' "$cfg_run" > "$R/.factory/config.yaml"
+run bash "$S/state.sh" verify-freeze;                    t_code 1 "a config check that differs from main's still counts"
+t_has "$ERR$OUT" ".factory/config.yaml" "and is named"
+git -C "$R" checkout -q -- .factory/config.yaml
 t_done
