@@ -376,7 +376,8 @@ def verify(root, run, cfg, plan, lists=("tests", "checks")):
     if "checks" in lists:
         current, _ = lists_for(root, cfg)
         for lst, _, p in current:
-            if lst == "checks" and p not in frozen_paths:
+            # a new check file the reviewed Exceptions name is allowed, as a change to one is
+            if lst == "checks" and p not in frozen_paths and (p not in exc or p == CONFIG_PATH):
                 problems.append((p, "a new check-defining file appeared after the freeze"))
     return problems
 
