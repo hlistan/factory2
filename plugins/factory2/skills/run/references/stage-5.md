@@ -32,13 +32,17 @@
    1. `bash $S/state.sh phase tests` (test-guard lets only test-author edit frozen tests, and only in
       this phase). Spawn test-author: one failing test that reproduces it, tagged with the criterion it
       violates, or untagged when no criterion covers it. Its report lists the new tests' names.
-   2. Red check for the new tests only: `bash $S/run-checks.sh --set all --live --tail 20`, then
+   2. Red check for the new tests only: run just those tests, with the check's own command narrowed to
+      them (e.g. a Playwright `-g "<title>"` on every project, a Go `-run`), writing their report into
+      that check's folder (`FACTORY_REPORTS=<run>/reports/<check>`), then
       `bash $S/state.sh red-check --test "<name>" [--test "<name>" ...]` (one `--test` per new test, its
-      exact name from the test-author's report): each named test must fail (exit 0).
-      `run-checks.sh --live` is right here: the config is frozen, so live and snapshot agree.
+      exact name from the test-author's report): each named test must fail (exit 0). The whole suite
+      runs once, after the fix (step 4), not on every iteration of a test or a fix.
    3. test-reviewer (read-only batch) → commit → `bash $S/state.sh freeze` (extends the freeze).
-   4. `bash $S/state.sh phase review`, then a **fresh** implementer at `high` → checks and
-      contract-sync as in stage 4b.
+   4. `bash $S/state.sh phase review`, then a **fresh** implementer at `high`. When it stops, run the
+      targeted tests from step 2 first; while they fail, the next implementer gets that output. Once they
+      pass, the full checks (`run-checks.sh --set all`) and contract-sync as in stage 4b, which catch
+      regressions.
 8. **Re-review** (`state.sh round review` again; beyond `limits.review_rounds` stop and ask): step 3,
    then only the lenses that blocked, and QA if it failed, in one read-only batch, then steps 6-7 for
    their findings. Repeat until nothing blocks.
