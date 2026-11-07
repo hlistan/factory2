@@ -16,11 +16,13 @@ if [ "${FAKE_MODE:-}" != nomedia ]; then
   printf 'png' > "$out/ac1-1440/test-finished-1.png"; printf 'webm' > "$out/ac1-1440/video.webm"
   printf 'png' > "$out/ac2-1440/test-finished-1.png"; printf 'png' > "$out/other/test-finished-1.png"
 fi
+# container: the demo ran in a container that mounts the project at /workspace, and reports those paths
+rep="$out"; [ "${FAKE_MODE:-}" = container ] && rep="/workspace/.factory/runs/demo/evidence/tests"
 att() { [ "${FAKE_MODE:-}" = nomedia ] && { echo '[]'; return; }
-  printf '[{"name":"screenshot","contentType":"image/png","path":"%s/%s/test-finished-1.png"}%s]' "$out" "$1" "$2"; }
+  printf '[{"name":"screenshot","contentType":"image/png","path":"%s/%s/test-finished-1.png"}%s]' "$rep" "$1" "$2"; }
 cat > "$FACTORY_EVIDENCE/results.json" <<JSON
 {"suites":[{"title":"dark.spec.ts","file":"dark.spec.ts","specs":[
-  {"title":"@AC-1 toggles","tags":[],"tests":[{"projectName":"1440x900","results":[{"status":"passed","attachments":$(att ac1-1440 ",{\"name\":\"video\",\"contentType\":\"video/webm\",\"path\":\"$out/ac1-1440/video.webm\"}")}]}]},
+  {"title":"@AC-1 toggles","tags":[],"tests":[{"projectName":"1440x900","results":[{"status":"passed","attachments":$(att ac1-1440 ",{\"name\":\"video\",\"contentType\":\"video/webm\",\"path\":\"$rep/ac1-1440/video.webm\"}")}]}]},
   {"title":"returns to light","tags":["AC-2"],"tests":[{"projectName":"1440x900","results":[{"status":"failed","attachments":$(att ac2-1440 "")}]}]},
   {"title":"helper screen","tags":[],"tests":[{"projectName":"1440x900","results":[{"status":"passed","attachments":$(att other "")}]}]}
 ]}]}
@@ -53,6 +55,8 @@ t_has "$ERR" "some criteria failed on camera" "and say so"
 FAKE_MODE=noresults run bash "$E" capture;       t_code 1 "no results.json"
 FAKE_MODE=nomedia run bash "$E" capture;         t_code 1 "nothing recorded"
 t_has "$ERR" "recorded no video or screenshot" "explains an empty capture"
+FAKE_MODE=container run bash "$E" capture;       t_code 0 "a demo run in a container"
+t_eq "$(jq -r '.tests[0].media | map(.path | sub("\\.mp4$"; ".webm")) | join(",")' "$M")" "tests/ac1-1440/test-finished-1.png,tests/ac1-1440/video.webm" "its paths are found under the evidence dir"
 
 run bash "$E" capture
 printf '{"findings":[{"id":"M1","lens":"maintainability","severity":"advisory","where":"a.ts:3","problem":"<b>dup</b>","fix":"extract"}]}' > "$RUN/advisory.json"

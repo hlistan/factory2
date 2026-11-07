@@ -2,7 +2,8 @@
 
   evidence.py manifest <evidence dir> <driver> <exit code> <head sha>
       Writes <evidence dir>/manifest.json. With the playwright driver it reads the JSON reporter's
-      results.json (tests, their projects = viewports, statuses and attachments); with command it lists
+      results.json (tests, their projects = viewports, statuses and attachments; a path the demo
+      reported from inside a container is found by its tail under the evidence dir); with command it lists
       the media files under the directory and maps each to criteria by AC-n / AC_n in its path; with none
       it records no media. Exit 1 when the playwright driver produced no results.json.
 
@@ -36,6 +37,20 @@ def rel(path, base):
     p = os.path.realpath(path)
     b = os.path.realpath(base)
     return os.path.relpath(p, b) if p.startswith(b + os.sep) else None
+
+
+def local_path(path, edir):
+    """The attachment's file on this machine. A demo that ran in a container (or on another mount)
+    reports its own paths; the file it names is then the one at the longest tail of that path, of a
+    directory and a file at least, that exists under the evidence dir."""
+    if os.path.isfile(path):
+        return path
+    parts = [x for x in path.replace("\\", "/").split("/") if x]
+    for i in range(len(parts) - 1):
+        cand = os.path.join(edir, *parts[i:])
+        if os.path.isfile(cand):
+            return cand
+    return path
 
 
 def prefer_mp4(path):
@@ -74,7 +89,7 @@ def manifest_playwright(edir):
                         p = a.get("path")
                         if not p:
                             continue
-                        p = prefer_mp4(p)
+                        p = prefer_mp4(local_path(p, edir))
                         if not os.path.isfile(p):
                             continue
                         kind = MEDIA.get(os.path.splitext(p)[1].lower())
