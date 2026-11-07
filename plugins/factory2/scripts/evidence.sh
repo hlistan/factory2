@@ -6,7 +6,9 @@
 #         the one --ac names); only the default command needs the demo config in the project root.
 #         The demo config records a video and screenshots per test, one project per evidence.viewports
 #         size, and writes results.json (JSON reporter) into $FACTORY_EVIDENCE.
-#         Failing tests still leave evidence; capture fails only when nothing was recorded.
+#         Failing tests still leave evidence; capture fails only when nothing was recorded. A tagged
+#         test that already existed at the run's base is an earlier feature's (AC numbers restart with
+#         every feature): the manifest leaves it out and lists it as PRE-EXISTING.
 #       evidence.driver command: runs `evidence.capture`, which writes screenshots or recordings into
 #         $FACTORY_EVIDENCE; a file whose path names AC-n (or AC_n) is shown under that criterion.
 #       evidence.driver none: no media; the pack shows test results only.
@@ -99,7 +101,9 @@ case "$cmd" in
       *) echo "factory: evidence.driver must be playwright, command or none (got '$driver')" >&2; exit 2 ;;
     esac
     to_mp4
-    factory_py "$FACTORY_LIB/evidence.py" manifest "$edir" "$driver" "$code" "$(git -C "$root" rev-parse HEAD 2>/dev/null)" || exit 1
+    base="$(state_get '.base // empty')"
+    factory_py "$FACTORY_LIB/evidence.py" manifest "$edir" "$driver" "$code" "$(git -C "$root" rev-parse HEAD 2>/dev/null)" \
+      ${base:+--base "$base" --root "$root"} || exit 1
     [ "$code" = 0 ] || echo "factory: the demo run exited $code: some criteria failed on camera; the pack shows which" >&2
     state_update '.evidence = {captured_at: $at, head: $h, driver: $d, exit: ($c | tonumber)}' \
       --arg at "$(now_utc)" --arg h "$(git -C "$root" rev-parse HEAD 2>/dev/null)" --arg d "$driver" --arg c "$code"

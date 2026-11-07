@@ -24,7 +24,8 @@ cat > "$FACTORY_EVIDENCE/results.json" <<JSON
 {"suites":[{"title":"dark.spec.ts","file":"dark.spec.ts","specs":[
   {"title":"@AC-1 toggles","tags":[],"tests":[{"projectName":"1440x900","results":[{"status":"passed","attachments":$(att ac1-1440 ",{\"name\":\"video\",\"contentType\":\"video/webm\",\"path\":\"$rep/ac1-1440/video.webm\"}")}]}]},
   {"title":"returns to light","tags":["AC-2"],"tests":[{"projectName":"1440x900","results":[{"status":"failed","attachments":$(att ac2-1440 "")}]}]},
-  {"title":"helper screen","tags":[],"tests":[{"projectName":"1440x900","results":[{"status":"passed","attachments":$(att other "")}]}]}
+  {"title":"helper screen","tags":[],"tests":[{"projectName":"1440x900","results":[{"status":"passed","attachments":$(att other "")}]}]},
+  {"title":"the wizard opens @AC-1","tags":[],"tests":[{"projectName":"1440x900","results":[{"status":"passed","attachments":$(att other "")}]}]}
 ]}]}
 JSON
 [ "${FAKE_MODE:-}" = fail ] && exit 1
@@ -34,6 +35,9 @@ chmod +x "$FAKE/pw"; export FAKE_LOG="$FAKE"
 write_config "$R" "evidence:
   playwright: \"bash $FAKE/pw\"
   viewports: [1440x900, 390x844]"
+# an earlier feature's test, at the base, that reused the tag AC-1
+printf 'test("the wizard opens @AC-1", () => {})\n' > "$R/wizard.spec.ts"
+git -C "$R" add -A && git -C "$R" commit -q -m "an earlier feature"
 bash "$S/state.sh" start demo >/dev/null
 SP="$R/docs/specs/demo"; RUN="$R/.factory/runs/demo"; mkdir -p "$SP"
 printf '{"criteria":[{"id":"AC-1","text":"WHEN clicked THE SYSTEM SHALL go dark","level":"e2e","test_ids":["x"],"passes":true},{"id":"AC-2","text":"Back to <light>","level":"e2e","test_ids":[],"passes":false},{"id":"AC-10","text":"unit only","level":"unit","test_ids":[],"passes":true}]}' > "$SP/contract.json"
@@ -44,6 +48,8 @@ t_has "$(cat "$FAKE/args")" "--grep @AC-(1|2|10)\\b" "greps every criterion, AC-
 t_eq "$(cat "$FAKE/env")" "1440x900,390x844|$(bash "$S/state.sh" get .port)" "viewports and port passed"
 M="$RUN/evidence/manifest.json"
 t_eq "$(jq -r '[.tests[] | .ac | join(",")] | join(" ")' "$M")" "AC-1 AC-2 " "criteria from titles and tags"
+t_eq "$(jq -r '.pre_existing | join(",")' "$M")" "the wizard opens @AC-1" "an earlier feature's test with a reused tag is left out"
+t_has "$ERR" "PRE-EXISTING" "and listed"
 t_eq "$(jq -r '.tests[0].media | map(.kind) | join(",")' "$M")" "image,video" "screenshot and video recorded"
 t_eq "$(jq -r '.tests[1].status' "$M")" "failed" "a failing test still counts as evidence"
 t_eq "$(bash "$S/state.sh" get .evidence.driver)" "playwright" "capture recorded in state"

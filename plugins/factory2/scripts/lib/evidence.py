@@ -1,7 +1,9 @@
 """factory evidence helper (stage 6). Used by scripts/evidence.sh; not called directly.
 
-  evidence.py manifest <evidence dir> <driver> <exit code> <head sha>
-      Writes <evidence dir>/manifest.json. With the playwright driver it reads the JSON reporter's
+  evidence.py manifest <evidence dir> <driver> <exit code> <head sha> [--base <commit> --root <repo>]
+      Writes <evidence dir>/manifest.json. With --base, a demo test whose tagged title already appears
+      in the base commit's tree is an earlier feature's (AC numbers restart with every feature): it is
+      left out and listed as PRE-EXISTING, by the rule junit.py's sync uses. With the playwright driver it reads the JSON reporter's
       results.json (tests, their projects = viewports, statuses and attachments; a path the demo
       reported from inside a container is found by its tail under the evidence dir); with command it lists
       the media files under the directory and maps each to criteria by AC-n / AC_n in its path; with none
@@ -104,6 +106,7 @@ def manifest_playwright(edir):
                         media.append({"kind": kind, "path": r})
                 status = last.get("status") or test.get("status") or "unknown"
                 tests.append({
+                    "name": spec.get("title", ""),
                     "title": " › ".join(titles[1:] + [spec.get("title", "")]) if len(titles) > 1 else spec.get("title", ""),
                     "file": spec.get("file") or (titles[0] if titles else ""),
                     "ac": acs(spec.get("title", ""), " ".join(tags), " ".join(titles)),
@@ -128,12 +131,27 @@ def manifest_files(edir):
     return tests
 
 
-def cmd_manifest(edir, driver, code, head):
+def earlier_features(tests, root, base):
+    """Indexes of the tests whose tagged title is already in the base commit's tree (junit.py's rule)."""
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    import junit
+    return junit.pre_existing([{"id": i, "name": t["name"], "text": t["name"]} for i, t in enumerate(tests)], root, base)
+
+
+def cmd_manifest(edir, driver, code, head, root=None, base=None):
+    pre = []
     if driver == "playwright":
         tests = manifest_playwright(edir)
         if tests is None:
             print("factory: the demo run wrote no results.json (is the JSON reporter in playwright.demo.config.ts?)", file=sys.stderr)
             return 1
+        old = earlier_features(tests, root, base) if base else set()
+        for t in tests:
+            t.pop("name", None)
+        pre = sorted({t["title"] for i, t in enumerate(tests) if i in old})
+        for title in pre:
+            print(f"PRE-EXISTING\t{title} existed at the base (an earlier feature's test); left out", file=sys.stderr)
+        tests = [t for i, t in enumerate(tests) if i not in old]
     elif driver == "command":
         tests = manifest_files(edir)
     else:
@@ -142,7 +160,7 @@ def cmd_manifest(edir, driver, code, head):
         print("factory: the demo ran but recorded no video or screenshot; read run.log (a missing browser:"
               " npx playwright install)", file=sys.stderr)
         return 1
-    m = {"driver": driver, "exit": int(code), "head": head, "tests": tests}
+    m = {"driver": driver, "exit": int(code), "head": head, "tests": tests, "pre_existing": pre}
     with open(os.path.join(edir, "manifest.json"), "w", encoding="utf-8") as f:
         json.dump(m, f, indent=2)
     n_media = sum(len(t["media"]) for t in tests)
@@ -288,8 +306,12 @@ def cmd_pack(edir, pdir, contract_path, info_path):
 
 
 def main(argv):
-    if len(argv) == 6 and argv[1] == "manifest":
-        return cmd_manifest(argv[2], argv[3], argv[4], argv[5])
+    if argv[1:2] == ["manifest"] and len(argv) in (6, 10):
+        opts = dict(zip(argv[6::2], argv[7::2]))
+        if set(opts) - {"--base", "--root"} or (opts and len(opts) != 2):
+            print("evidence.py: give both --base <commit> and --root <repo>, or neither", file=sys.stderr)
+            return 2
+        return cmd_manifest(argv[2], argv[3], argv[4], argv[5], opts.get("--root"), opts.get("--base"))
     if len(argv) == 6 and argv[1] == "pack":
         return cmd_pack(argv[2], argv[3], argv[4], argv[5])
     print(__doc__, file=sys.stderr)
