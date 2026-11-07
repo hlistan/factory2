@@ -152,10 +152,13 @@ def file_hash(root, path, kind):
 
 
 UNFROZEN_CONFIG_KEYS = ("limits", "evidence")  # neither decides whether a check passes
+# Earlier sets, so a freeze recorded under them still verifies. A file that matches under a smaller set
+# also matches under the current one, which leaves out more keys, so accepting them loosens nothing.
+FORMER_UNFROZEN_CONFIG_KEYS = (("limits",),)
 
 
-def config_without_limits(data):
-    """The config's canonical JSON without its unfrozen sections, or None when it doesn't parse."""
+def config_without_limits(data, keys=UNFROZEN_CONFIG_KEYS):
+    """The config's canonical JSON without the `keys` sections, or None when it doesn't parse."""
     import importlib.util
     spec = importlib.util.spec_from_file_location(
         "factory_yaml2json", os.path.join(os.path.dirname(os.path.abspath(__file__)), "yaml2json.py"))
@@ -167,9 +170,24 @@ def config_without_limits(data):
         return None
     if not isinstance(obj, dict):
         return None
-    for k in UNFROZEN_CONFIG_KEYS:
+    for k in keys:
         obj.pop(k, None)
     return json.dumps(obj, sort_keys=True, separators=(",", ":")).encode()
+
+
+def frozen_hash_matches(root, path, kind, h):
+    """Whether the file still hashes to `h`, under the current rule or (for the config) a former one."""
+    if file_hash(root, path, kind) == h:
+        return True
+    if kind != "config":
+        return False
+    with open(os.path.join(root, path), "rb") as f:
+        data = f.read()
+    for keys in FORMER_UNFROZEN_CONFIG_KEYS:
+        canon = config_without_limits(data, keys)
+        if canon is not None and hashlib.sha256(canon).hexdigest() == h:
+            return True
+    return False
 
 
 def bytes_hash(data, kind):
@@ -337,7 +355,7 @@ def verify(root, run, cfg, plan, lists=("tests", "checks")):
             if p not in exc:
                 problems.append((p, f"a frozen {'test' if lst == 'tests' else 'check-defining'} file was deleted"))
             continue
-        if file_hash(root, p, kind) != h:
+        if not frozen_hash_matches(root, p, kind, h):
             if lst == "tests":
                 if p not in exc:
                     problems.append((p, "a frozen test file was changed after the freeze"))

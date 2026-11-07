@@ -194,6 +194,17 @@ printf '%s\nevidence:\n  playwright: "bin/in-container npx playwright test"\n' "
 run bash "$S/state.sh" verify-freeze;                      t_code 0 "an evidence setting after the freeze verifies"
 printf '%s\n' "$cfg0" > "$R/.factory/config.yaml"
 git -C "$R" commit -qam "limits back"
+# A freeze recorded before `evidence` was unfrozen (its config hash leaves out `limits` only) still
+# verifies an unchanged config, and still catches a changed check command.
+run bash "$S/state.sh" freeze;                             t_code 0 "re-freeze before the former-rule case"
+legacy="$(cd "$R" && python3 -c 'import sys; sys.path.insert(0, sys.argv[1]); import freeze; print(__import__("hashlib").sha256(freeze.config_without_limits(open(".factory/config.yaml", "rb").read(), ("limits",))).hexdigest())' "$S/lib")"
+awk -F'\t' -v OFS='\t' -v h="$legacy" '$4 == ".factory/config.yaml" { $3 = h } { print }' "$R/.factory/runs/fb/frozen.tsv" > "$T_TMP/frozen.tsv"
+cp "$T_TMP/frozen.tsv" "$R/.factory/runs/fb/frozen.tsv"
+printf '%s\nevidence:\n  playwright: "bin/in-container npx playwright test"\n' "$cfg0" > "$R/.factory/config.yaml"
+run bash "$S/state.sh" verify-freeze;                      t_code 0 "a freeze under the former config rule verifies"
+printf 'checks:\n  fast:\n    ok: "false"\n' > "$R/.factory/config.yaml"
+run bash "$S/state.sh" verify-freeze;                      t_code 1 "and still catches a changed check command"
+printf '%s\n' "$cfg0" > "$R/.factory/config.yaml"
 
 R2="$(new_repo)"; export FACTORY_ROOT="$R2"
 write_config "$R2" 'checks:
