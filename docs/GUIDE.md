@@ -404,7 +404,7 @@ started yet.
 **The issue is what is built; the PR is how.** Every run works on one GitHub issue, the feature's only
 source of truth: `/factory2:run --issue <n>` uses yours, and a plain request becomes a new issue. A PR
 contributes to exactly one issue (`Part of #<n>` at the top of its description); an issue can have
-several PRs. The flow (the `issue-flow` skill, `scripts/issue-flow.sh`) uses six labels and nothing else:
+several PRs. The flow (the `issue-flow` skill, `scripts/issue-flow.sh`) uses six labels and nothing else (the interactive schema, with what happens and what you do at each status: [issue-flow.html](issue-flow.html)):
 
 | On | Label | Means |
 |---|---|---|

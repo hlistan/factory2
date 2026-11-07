@@ -113,7 +113,7 @@ names its criterion with `@AC-n` in its title (or `AC_n` in a Go or Swift functi
 | `/factory2:run --issue <ref>` | Starts a bugfix run from an issue (GitHub number or URL, or a local incident file) |
 | `/factory2:run` | Lists the issues labelled `todo`, ready to build |
 | `/factory2:status` | Where the active run stands, and what waits for you |
-| `/factory2:issue-flow` | The issue flow on its own: set up its labels, show an issue and its PRs, move them |
+| `/factory2:issue-flow` | The issue flow on its own: set up its labels, show an issue and its PRs, move them ([interactive schema](docs/issue-flow.html)) |
 | `/factory2:monitor <slug>` | One round of production checks; pair with `/loop 15m` |
 | `/factory2:stats` | Spend, first-pass rates, human-found issues and QA misses across runs |
 

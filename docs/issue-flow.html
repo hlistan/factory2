@@ -1,0 +1,556 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Issue flow</title>
+<meta name="description" content="factory2's issue flow: one GitHub issue per feature, its pull requests, what happens at each status and what a person must do.">
+<style>
+:root {
+  --bg: #f7f7f5; --panel: #ffffff; --ink: #1d1d1b; --muted: #5f5f5a; --line: #e3e2dd; --soft: #f0efea;
+  --accent: #1d5fd1; --code: #f3f2ee;
+  --todo: #8a8a84; --planning: #3f8f9c; --building: #1d5fd1; --testing: #6b3fc2; --documenting: #1f8a4c;
+  --done: #444; --blocked: #c4501a; --blocked-soft: #fbeee6;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #161615; --panel: #1f1f1d; --ink: #ecebe6; --muted: #a3a29b; --line: #34332f; --soft: #262624;
+    --accent: #7aa7ff; --code: #2a2a27;
+    --todo: #9d9d96; --planning: #6cc0cc; --building: #7aa7ff; --testing: #b39af0; --documenting: #6fcf95;
+    --done: #cfcfc8; --blocked: #ff9a63; --blocked-soft: #3a261b;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #161615; --panel: #1f1f1d; --ink: #ecebe6; --muted: #a3a29b; --line: #34332f; --soft: #262624;
+  --accent: #7aa7ff; --code: #2a2a27;
+  --todo: #9d9d96; --planning: #6cc0cc; --building: #7aa7ff; --testing: #b39af0; --documenting: #6fcf95;
+  --done: #cfcfc8; --blocked: #ff9a63; --blocked-soft: #3a261b;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Roboto, sans-serif; }
+main { max-width: 1080px; margin: 0 auto; padding: 32px 16px 64px; }
+h1 { font-size: 28px; margin: 0 0 6px; letter-spacing: -0.01em; }
+h2 { font-size: 19px; margin: 40px 0 10px; }
+h3 { font-size: 15px; margin: 18px 0 6px; }
+p { margin: 6px 0; }
+.lede { color: var(--muted); max-width: 760px; }
+code, pre { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 13px; }
+code { background: var(--code); padding: 1px 5px; border-radius: 4px; }
+pre { background: var(--code); padding: 10px 12px; border-radius: 8px; overflow-x: auto; margin: 6px 0; white-space: pre-wrap; }
+a { color: var(--accent); }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 18px 20px; }
+.label { display: inline-block; padding: 1px 9px; border-radius: 999px; font-size: 12.5px; font-weight: 600; color: #fff; white-space: nowrap; }
+.l-todo { background: var(--todo); } .l-planning { background: var(--planning); } .l-building { background: var(--building); }
+.l-testing { background: var(--testing); } .l-documenting { background: var(--documenting); } .l-blocked { background: var(--blocked); }
+.l-done { background: var(--done); color: var(--bg); } .l-draft { background: transparent; color: var(--muted); border: 1px solid var(--line); }
+.l-none { background: transparent; color: var(--muted); border: 1px dashed var(--line); font-weight: 500; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .label:not(.l-draft):not(.l-none):not(.l-done) { color: #111; } }
+:root[data-theme="dark"] .label:not(.l-draft):not(.l-none):not(.l-done) { color: #111; }
+
+/* stepper */
+.stepper { display: grid; grid-template-columns: repeat(6, 1fr); gap: 8px; margin: 22px 0 0; }
+.step { appearance: none; border: 1px solid var(--line); background: var(--panel); color: var(--ink); border-radius: 10px; padding: 10px 10px 9px; text-align: left; cursor: pointer; font: inherit; position: relative; }
+.step:hover { border-color: var(--muted); }
+.step[aria-selected="true"] { border-color: var(--c); box-shadow: inset 0 3px 0 var(--c); }
+.step .n { font-size: 11.5px; color: var(--muted); }
+.step .t { font-weight: 650; display: block; }
+.step .s { font-size: 12px; color: var(--muted); display: block; margin-top: 2px; }
+.step .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--c); display: inline-block; margin-right: 6px; }
+.blockbar { margin: 8px 0 0; border: 1px dashed var(--blocked); background: var(--blocked-soft); color: var(--ink); border-radius: 10px; padding: 8px 12px; font-size: 13.5px; cursor: pointer; width: 100%; text-align: left; font: inherit; }
+.blockbar[aria-selected="true"] { border-style: solid; box-shadow: inset 0 3px 0 var(--blocked); }
+.detail { margin-top: 14px; }
+.cols { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+.box { border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; background: var(--panel); }
+.box h3 { margin-top: 0; font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
+.box.you { border-color: var(--blocked); background: var(--blocked-soft); }
+.box.you h3 { color: var(--blocked); }
+.box.none h3 { color: var(--muted); }
+ul.steps { margin: 4px 0; padding-left: 18px; } ul.steps li { margin: 3px 0; }
+.state-row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 4px 0 8px; }
+.state-row b { font-size: 12.5px; color: var(--muted); font-weight: 600; min-width: 36px; }
+.stagechips { font-size: 12.5px; color: var(--muted); }
+.navrow { display: flex; justify-content: space-between; margin-top: 12px; gap: 8px; }
+.btn { appearance: none; border: 1px solid var(--line); background: var(--panel); color: var(--ink); border-radius: 8px; padding: 6px 12px; cursor: pointer; font: inherit; font-size: 13.5px; }
+.btn:hover { border-color: var(--muted); }
+.btn:disabled { opacity: .4; cursor: default; }
+
+/* tables */
+table { border-collapse: collapse; width: 100%; font-size: 14px; }
+th, td { text-align: left; padding: 7px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; font-weight: 600; }
+.tablewrap { overflow-x: auto; }
+
+/* simulator */
+.sim { display: grid; grid-template-columns: 1.2fr 1fr; gap: 14px; }
+.prrow { display: grid; grid-template-columns: 60px 1fr auto auto; gap: 8px; align-items: center; padding: 8px 0; border-bottom: 1px solid var(--line); }
+.prrow:last-child { border-bottom: 0; }
+select { font: inherit; font-size: 13.5px; padding: 4px 6px; border-radius: 6px; border: 1px solid var(--line); background: var(--panel); color: var(--ink); max-width: 100%; }
+.chk { font-size: 13.5px; display: flex; gap: 5px; align-items: center; white-space: nowrap; }
+.result { font-size: 14px; }
+.result .big { font-size: 13px; color: var(--muted); }
+.why { color: var(--muted); font-size: 13.5px; margin-top: 8px; }
+.issuepage { border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; margin-top: 10px; }
+.issuepage .ttl { font-weight: 650; }
+.state-pill { display: inline-block; font-size: 12px; font-weight: 600; padding: 2px 9px; border-radius: 999px; background: #1f883d; color: #fff; }
+.state-pill.closed { background: #8250df; }
+
+/* diagram */
+.diagram { width: 100%; height: auto; display: block; }
+.diagram text { fill: var(--ink); font-size: 13px; font-family: inherit; }
+.diagram .sub { fill: var(--muted); font-size: 11.5px; }
+.diagram .edge { stroke: var(--muted); stroke-width: 1.4; fill: none; }
+.diagram .back { stroke: var(--blocked); stroke-dasharray: 4 4; }
+.legend { display: flex; flex-wrap: wrap; gap: 14px; font-size: 13px; color: var(--muted); margin-top: 6px; }
+.footer { color: var(--muted); font-size: 13px; margin-top: 40px; }
+
+.cols > *, .sim > *, .step, .prrow > * { min-width: 0; }
+code { overflow-wrap: anywhere; }
+.diagwrap { overflow-x: auto; }
+@media (max-width: 760px) {
+  .diagram { min-width: 760px; }
+  .stepper { grid-template-columns: repeat(3, 1fr); }
+  .cols, .sim { grid-template-columns: 1fr; }
+  .prrow { grid-template-columns: 52px 1fr; }
+}
+</style>
+</head>
+<body>
+<main>
+  <h1>Issue flow</h1>
+  <p class="lede">One GitHub issue per feature is the only source of truth. Its pull requests follow it. Every request for a person is a comment <em>on the issue</em> that names the PR, so the issue page and its notifications are the one place to look. Click a status to see what happens, the labels on the issue and the PR, and what you have to do.</p>
+
+  <div class="stepper" role="tablist" id="stepper"></div>
+  <button class="blockbar" id="blockbar" role="tab" aria-selected="false">
+    <span class="label l-blocked">blocked</span>&nbsp; can be added on top of <code>planning</code>, <code>building</code>, <code>testing</code> or <code>documenting</code> whenever a PR waits for a person. Click to see how it works.
+  </button>
+
+  <div class="detail card" id="detail" role="tabpanel" aria-live="polite"></div>
+
+  <h2>The top of the issue: what is happening, what to do</h2>
+  <p class="lede">The issue's body starts with a status block for each of its PRs, which factory rewrites at every stage, phase, round, request and reply. Open the issue and the first lines tell you whether you must act. Your own text stays below it.</p>
+  <div class="cols">
+    <div class="card">
+      <h3 style="margin-top:0">While the run works</h3>
+      <div class="issuepage" style="margin-top:0">
+        <div class="ttl">▶️ Stage 5 of 8 · testing: review, QA and fixes</div>
+        <p><strong>Now:</strong> Review round 3 of 3: correctness, security and spec reviewers, and QA in the running app. Each confirmed problem gets a failing test, then a fix.</p>
+        <p><strong>You:</strong> nothing to do now. You will be asked here to approve what was built before it merges.</p>
+        <p><strong>Approvals:</strong> plan ✅ (<code>18c0520</code>) · what was built not yet</p>
+        <p class="why">▸ History of PR #93<br>
+        2026-11-07T13:43Z · ↩️ Back to stage 5 (Review, QA and fixes) from stage 6: a layout shift in the inbox. Approval revoked: what was built; you will be asked again<br>
+        2026-11-07T11:36Z · ✅ @hlistan approved what was built (evidence) at <code>db45d0f</code></p>
+      </div>
+    </div>
+    <div class="card">
+      <h3 style="margin-top:0">When it needs you</h3>
+      <div class="issuepage" style="margin-top:0; border-color: var(--blocked)">
+        <div class="ttl">🛑 Waiting for you: approve what was built (evidence)</div>
+        <p>Stage 6 of 8 · documenting: docs, then the evidence for your approval</p>
+        <p><strong>Now:</strong> Recording the evidence (round 4 of 4): a demo video and screenshots per criterion, and the review pack.</p>
+        <p>🛑 <strong>You:</strong> <a href="#">open the request</a> and reply <code>/approve</code>, or write your change requests there. The run waits for you.</p>
+        <p><strong>Approvals:</strong> plan ✅ (<code>18c0520</code>) · what was built not yet</p>
+      </div>
+    </div>
+  </div>
+  <p class="why">Going back always shows why, and which approval it revoked: an approval holds only for the commit it was given on. A <code>/approve</code> sent while nothing is waiting doesn't count, and when the next request comes factory says so on the issue.</p>
+
+  <h2>The whole flow</h2>
+  <div class="card">
+    <div class="diagwrap"><svg class="diagram" viewBox="0 0 1016 285" role="img" aria-label="Issue statuses from todo to done, with blocked loops and fix loops going back">
+      <defs>
+        <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="currentColor" style="color: var(--muted)"/></marker>
+        <marker id="arrb" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" style="fill: var(--blocked)"/></marker>
+      </defs>
+      <g id="dg"></g>
+    </svg></div>
+    <div class="legend">
+      <span>→ moves forward with the run's stages</span>
+      <span style="color: var(--blocked)">⇢ goes back: a fix loop, a change request, or a stopped PR</span>
+      <span>⧉ blocked is added while a PR waits for you, and removed when you reply</span>
+    </div>
+  </div>
+
+  <h2>Status by factory stage</h2>
+  <div class="card tablewrap">
+    <table>
+      <thead><tr><th>Stage</th><th>Issue</th><th>PR</th><th>Waits for you?</th></tr></thead>
+      <tbody id="stagetable"></tbody>
+    </table>
+  </div>
+
+  <h2>Several PRs on one issue</h2>
+  <p class="lede">A PR contributes to exactly one issue, but an issue can have several PRs. The issue shows the <strong>earliest</strong> status among its open PRs, and <code>blocked</code> while <strong>any</strong> of them is blocked. It closes only when its last open PR merges. Set the PRs below and watch the issue.</p>
+  <div class="sim">
+    <div class="card" id="simprs"></div>
+    <div class="card result" id="simout"></div>
+  </div>
+
+  <h2>What you reply</h2>
+  <div class="card">
+    <p>You always answer on the <strong>issue</strong> (replies on the PR work too). The request comment says exactly what to write.</p>
+    <div class="cols" style="margin-top:10px">
+      <div class="box">
+        <h3>Approve (plan or evidence)</h3>
+        <pre>/approve</pre>
+        <p>The first line must be exactly <code>/approve</code>. Lines after it are kept as notes for the run:</p>
+        <pre>/approve
+Keep the reason field optional.</pre>
+        <p class="why">The approval holds for the requested commit only. A later push asks again. If change requests arrive together with <code>/approve</code>, the changes win.</p>
+      </div>
+      <div class="box">
+        <h3>Ask for changes</h3>
+        <p>One change per line, naming the criterion. At the plan:</p>
+        <pre>AC-7: an empty list says "Nothing to review" instead of showing an empty table.
+Out of scope: exporting the list as CSV.</pre>
+        <p>At the evidence:</p>
+        <pre>AC-3 does not hold: after closing, the item is still in the list.
+The button overlaps the title at phone width (the 390x844 screenshot).</pre>
+      </div>
+      <div class="box">
+        <h3>Answer a question</h3>
+        <p>For escalations such as a budget or round limit, a merge conflict, or anything the run can't decide. The question lists each option with its exact reply, for example:</p>
+        <pre>continue</pre>
+        <pre>accept R3.P1</pre>
+        <p class="why">The whole comment goes to the run word for word.</p>
+      </div>
+      <div class="box">
+        <h3>Stop the run</h3>
+        <p>Say so in the Claude Code session running it. factory closes the PR (<code>state.sh end --stop</code>), and the issue goes back to <code>todo</code> unless another PR works on it.</p>
+        <p class="why">Other slash commands are ignored, and comments from people outside <code>review.reviewers</code> are listed but never acted on.</p>
+      </div>
+    </div>
+  </div>
+
+  <h2>Finding what waits</h2>
+  <div class="card">
+    <pre>gh issue list --label blocked          # waiting for you
+gh issue list --label todo             # ready to be built: /factory2:run --issue &lt;n&gt;
+gh issue list --label testing          # in review and QA (also planning, building, documenting)
+gh pr list --label blocked             # the PRs those requests are about</pre>
+    <p>Never set these labels by hand. <code>scripts/issue-flow.sh</code> recomputes them from the PRs, and factory's guard blocks changing them during a run. Outside factory, use the commands in <code>skills/issue-flow</code>: <code>setup</code>, <code>start</code>, <code>status</code>, <code>block</code>, <code>unblock</code>, <code>merged</code>, <code>stop</code> and <code>show</code>.</p>
+  </div>
+
+  <h2>The PR's body</h2>
+  <div class="card">
+    <p>The issue is named at the top of every PR body. There is no <code>Fixes</code> or <code>Closes</code> keyword, so GitHub never closes the issue early:</p>
+    <pre>&lt;!-- issue-flow:issue=43 status=testing --&gt;
+Part of #43</pre>
+    <p>The hidden marker records this PR's own status. The issue's labels are computed from the markers of all its open PRs.</p>
+  </div>
+
+  <p class="footer">Source: <code>plugins/factory2/scripts/issue-flow.sh</code>, <code>skills/issue-flow/SKILL.md</code>, <code>skills/run/SKILL.md</code> and <code>references/</code>. Keep this page in step with them.</p>
+</main>
+
+<script>
+const STATUSES = [
+  { id: "todo", n: "Filed", title: "todo", sub: "ready to be built", color: "var(--todo)",
+    stages: "before stage 1",
+    issue: ["todo"], pr: null,
+    happens: [
+      "A person files the issue: what is wanted and why, in plain words. Labelling it <code>todo</code> means it is ready to be built.",
+      "Monitoring files production incidents itself, titled <code>Incident: …</code> and labelled <code>todo</code>.",
+      "<code>/factory2:run</code> with no arguments lists the <code>todo</code> issues and offers each. It never starts one on its own.",
+      "A request typed straight into <code>/factory2:run</code> with no issue gets one: <code>pr.sh open</code> creates it from the request."
+    ],
+    you: [
+      "File the issue and add the <code>todo</code> label. An issue without a flow label is a backlog idea.",
+      "Start it with <code>/factory2:run --issue 43</code>. A defect or an incident starts a bugfix run, and anything else starts a feature run."
+    ],
+    youBlocking: false,
+    commands: ["gh issue list --label todo", "/factory2:run --issue 43"] },
+  { id: "planning", n: "Stages 1–3", title: "planning", sub: "what and how", color: "var(--planning)",
+    stages: "1 Analyze and plan · 2 PRD review · 3 Fix PRD",
+    issue: ["planning"], pr: ["building", "draft"],
+    happens: [
+      "The run switches to its branch <code>factory/&lt;slug&gt;</code>, and the guard blocks commits on any other branch.",
+      "<code>pr.sh open</code> opens the <strong>draft PR</strong> first, with <code>Part of #43</code> and the marker. The issue becomes <code>planning</code> and the PR <code>building</code>.",
+      "The planner writes the PRD (EARS acceptance criteria <code>AC-n</code>), <code>contract.json</code> and <code>plan.md</code>, and publishes them on the PR.",
+      "The PRD reviewer checks them in a fresh context, and its findings go on the PR.",
+      "<strong>Gate 1, the plan:</strong> the criteria and <code>plan.md</code> are posted on the PR, and a request goes on the issue. The PR and the issue become <code>blocked</code>.",
+      "Change requests go to the planner word for word (stage 3) and factory asks again. <code>/approve</code> records the approval against the commit and moves on to stage 4."
+    ],
+    you: [
+      "Open the PR from the issue's comment and read what will be built (the criteria) and how (the plan). Nothing is built until you approve.",
+      "Reply <code>/approve</code>, or write change requests, one per line, each naming its criterion."
+    ],
+    youBlocking: true,
+    commands: ["bash $S/pr.sh request-approval prd", "bash $S/pr.sh wait prd"] },
+  { id: "building", n: "Stage 4", title: "building", sub: "tests, then code", color: "var(--building)",
+    stages: "4 Implement",
+    issue: ["building"], pr: ["building", "draft"],
+    happens: [
+      "<code>state.sh stage 4</code> moves the issue to <code>building</code>. Stages 2–7 refuse to run unless the checkout is on the run's branch.",
+      "A baseline records the checks that already fail on the unchanged code.",
+      "The test author writes failing tests per criterion, and a red check proves they fail. The test reviewer checks them against <code>contract.json</code>.",
+      "<strong>Freeze:</strong> the tests and check-defining files are hashed. The implementer can't change them.",
+      "The implementer makes the frozen tests pass. It passes when every check is green and <code>contract-sync</code> exits 0.",
+      "The branch is pushed, and the PR's description and a note say the tests pass."
+    ],
+    you: ["Nothing. You can follow the commits and notes on the PR."],
+    youBlocking: false,
+    commands: ["bash $S/state.sh freeze", "bash $S/run-checks.sh --set all"] },
+  { id: "testing", n: "Stage 5", title: "testing", sub: "review, QA, fixes", color: "var(--testing)",
+    stages: "5 Review and fix",
+    issue: ["testing"], pr: ["building", "draft"],
+    happens: [
+      "Mechanical checks, then the review lenses in parallel: correctness, security and spec block, and maintainability is advisory.",
+      "The QA evaluator drives the running app and gives one pass or fail per criterion, with the steps it took and what it saw. It saves no screenshots.",
+      "At full depth, a challenger tries to refute each blocking finding.",
+      "<strong>Fix loop:</strong> each confirmed finding or QA fail gets a failing test first, then a fix, then another review round.",
+      "When a round limit or the budget runs out, factory asks on the issue (<code>pr.sh ask</code>) and the PR becomes <code>blocked</code>."
+    ],
+    you: [
+      "Usually nothing.",
+      "If a question arrives on the issue (a round limit, the budget, a conflict), reply with one of the exact answers it lists, such as <code>continue</code> or <code>accept R3.P1</code>."
+    ],
+    youBlocking: false,
+    commands: ["bash $S/pr.sh ask", "bash $S/pr.sh answer"] },
+  { id: "documenting", n: "Stages 6–7", title: "documenting", sub: "docs, evidence, merge", color: "var(--documenting)",
+    stages: "6 Docs, evidence and approval · 7 Merge and deploy",
+    issue: ["documenting"], pr: ["building", "draft"],
+    happens: [
+      "<strong>6.0 Docs:</strong> README, docs and CHANGELOG are updated for the tested behaviour, and the checks must stay green.",
+      "<strong>6.1 Evidence, recorded once at the final gate:</strong> every check must pass first, and a failure goes back to testing without recording. Then the Playwright demo records a video and screenshots per criterion and viewport, and the review pack is built. Later rounds re-record only the criteria a fix touched.",
+      "<strong>Gate 2, the evidence:</strong> the pack, the criteria table and the advisory findings go on the PR, and a request goes on the issue. Both become <code>blocked</code>.",
+      "Comments are triaged. A spec gap goes back to <em>planning</em> (stage 2), a defect back to <em>testing</em> (stage 5), and cosmetic issues get a direct fix. Then factory asks again.",
+      "After <code>/approve</code>, a <strong>📊 Analysis</strong> is posted on the issue: time, tokens and money per stage and agent, waits for you, loops back with their reasons, and what to change. Then stage 7 runs without asking: update from main, push, take the PR <strong>out of draft</strong>, wait for its checks, merge, deploy and run the smoke test.",
+      "A failing smoke test files an <code>Incident: …</code> issue and rolls back. The fix is a new bugfix run."
+    ],
+    you: [
+      "Open the PR from the issue's comment and check what was built: the review pack, plus each criterion with its video and screenshots.",
+      "Reply <code>/approve</code>. <strong>This is the last approval:</strong> factory then merges, deploys and smoke-tests on its own.",
+      "Or write what's wrong, one point per line, naming the criterion or the screenshot."
+    ],
+    youBlocking: true,
+    commands: ["bash $S/pr.sh request-approval evidence --details -", "bash $S/ship.sh merge"] },
+  { id: "done", n: "Merged", title: "done", sub: "issue closed", color: "var(--done)",
+    stages: "7 after the merge · 8 Monitor",
+    issue: ["closed"], pr: ["merged"],
+    happens: [
+      "<code>ship.sh merge</code> calls <code>issue-flow.sh merged</code>, and the PR loses its flow label.",
+      "If this was the issue's <strong>last open PR</strong>, the issue is closed with a comment naming the PR. Otherwise it stays open and follows its other PRs.",
+      "The deploy commit and the smoke result are posted on the issue.",
+      "Stage 8 runs the production checks. An anomaly files a new <code>Incident: …</code> issue (<code>todo</code>), with a rollback if the triager recommends one."
+    ],
+    you: [
+      "Nothing for this issue.",
+      "If an incident issue appears, start its bugfix run with <code>/factory2:run --issue &lt;n&gt;</code>."
+    ],
+    youBlocking: false,
+    commands: ["bash $S/issue-flow.sh merged <pr>", "/factory2:monitor <slug>"] }
+];
+
+const BLOCKED = {
+  id: "blocked", title: "blocked", color: "var(--blocked)",
+  happens: [
+    "Whenever the run needs a person, it posts the <strong>details on the PR</strong> (the plan, the evidence, the context of a question) and a short <strong>request on the issue</strong>, linking them.",
+    "The status block at the top of the issue changes to <strong>🛑 Waiting for you</strong>, with the link and the reply.",
+    "<code>issue-flow.sh block</code> changes the PR from <code>building</code> to <code>blocked</code> and adds <code>blocked</code> to the issue <em>next to</em> its status. For example, the issue shows <code>planning</code> and <code>blocked</code>.",
+    "The run waits in the background (<code>pr.sh wait</code> or <code>answer</code>) and reads replies from both the issue and the PR.",
+    "When you reply, <code>issue-flow.sh unblock</code> runs. The PR goes back to <code>building</code>, and <code>blocked</code> leaves the issue unless another PR of the issue is still blocked.",
+    "A run that is resumed while waiting stays blocked."
+  ],
+  example:
+`### 🛑 Blocked: PR #93 needs your approval of the plan: what will be built and how
+
+**Open PR #93** to read what will be built (the acceptance criteria) and how (the plan).
+Nothing is built until you approve.
+
+#### What to do
+Reply on this issue (or on PR #93) with one of:
+- **Approve**: a comment whose first line is exactly
+    /approve
+- **Ask for changes**: write each change on its own line, naming the criterion it concerns, for example:
+    AC-7: an empty list says "Nothing to review" instead of showing an empty table.
+    Out of scope: exporting the list as CSV.
+- **Stop the run**: say so in the Claude Code session running it.`,
+  when: [
+    ["The plan (stage 2)", "<code>/approve</code> or change requests"],
+    ["The evidence (stage 6)", "<code>/approve</code> or what's wrong"],
+    ["A decision (any stage)", "one of the replies the question lists"]
+  ]
+};
+
+const STAGE_ROWS = [
+  ["1 Analyze and plan", "planning", "building", ""],
+  ["2 PRD review", "planning", "building → blocked", "Approve the plan"],
+  ["3 Fix PRD", "planning", "building", "Only if you asked for changes; then gate 1 again"],
+  ["4 Implement (tests first)", "building", "building", ""],
+  ["5 Review and fix", "testing", "building", "Only on an escalation"],
+  ["6 Docs and evidence", "documenting", "building → blocked", "Approve the evidence (the last approval)"],
+  ["7 Merge and deploy", "documenting → closed", "out of draft → merged", ""],
+  ["8 Monitor", "closed", "merged", "Only if an incident is filed"]
+];
+
+const $ = (s, el = document) => el.querySelector(s);
+const lab = (s) => {
+  if (s === "draft") return `<span class="label l-draft">draft</span>`;
+  if (s === "merged") return `<span class="label l-done">merged</span>`;
+  if (s === "closed") return `<span class="label l-done">closed · done</span>`;
+  if (s === "none") return `<span class="label l-none">no flow label</span>`;
+  return `<span class="label l-${s}">${s}</span>`;
+};
+const esc = (s) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+
+let current = 1;
+function renderStepper() {
+  $("#stepper").innerHTML = STATUSES.map((s, i) => `
+    <button class="step" role="tab" style="--c:${s.color}" aria-selected="${current === i}" data-i="${i}">
+      <span class="n">${s.n}</span>
+      <span class="t"><span class="dot"></span>${s.title}</span>
+      <span class="s">${s.sub}</span>
+    </button>`).join("");
+  $("#blockbar").setAttribute("aria-selected", current === "blocked");
+  document.querySelectorAll(".step").forEach(b => b.onclick = () => { current = +b.dataset.i; render(); });
+}
+function renderDetail() {
+  const d = $("#detail");
+  if (current === "blocked") {
+    const b = BLOCKED;
+    d.innerHTML = `
+      <div class="state-row"><b>Issue</b>${lab("planning")}${lab("blocked")}<span class="stagechips">(any working status, plus blocked)</span></div>
+      <div class="state-row"><b>PR</b>${lab("blocked")}${lab("draft")}</div>
+      <div class="cols">
+        <div class="box"><h3>What happens</h3><ul class="steps">${b.happens.map(x => `<li>${x}</li>`).join("")}</ul></div>
+        <div class="box you"><h3>Your action</h3>
+          <p>Open the issue (it's in <code>gh issue list --label blocked</code>), read the latest 🛑 comment, open the PR it links, and reply on the issue.</p>
+          <table><tbody>${b.when.map(r => `<tr><td>${r[0]}</td><td>${r[1]}</td></tr>`).join("")}</tbody></table>
+        </div>
+      </div>
+      <h3>The comment on the issue</h3>
+      <pre>${esc(b.example)}</pre>`;
+    return;
+  }
+  const s = STATUSES[current];
+  const prRow = s.pr ? s.pr.map(lab).join("") : `<span class="stagechips">no PR yet</span>`;
+  const issueRow = s.issue.map(lab).join("") + (s.youBlocking ? ` <span class="stagechips">→ at the gate also</span> ${lab("blocked")}` : "");
+  const prRow2 = s.youBlocking ? ` <span class="stagechips">→ at the gate</span> ${lab("blocked")}${lab("draft")}` : "";
+  d.innerHTML = `
+    <div class="stagechips" style="margin-bottom:8px">${s.stages}</div>
+    <div class="state-row"><b>Issue</b>${issueRow}</div>
+    <div class="state-row"><b>PR</b>${prRow}${prRow2}</div>
+    <div class="cols">
+      <div class="box"><h3>What happens</h3><ul class="steps">${s.happens.map(x => `<li>${x}</li>`).join("")}</ul></div>
+      <div class="box ${s.youBlocking ? "you" : "none"}"><h3>${s.youBlocking ? "Your action: the run waits for you" : "Your action"}</h3>
+        <ul class="steps">${s.you.map(x => `<li>${x}</li>`).join("")}</ul>
+        <h3 style="margin-top:14px">Behind it</h3>
+        <pre>${s.commands.map(esc).join("\n")}</pre>
+      </div>
+    </div>
+    <div class="navrow">
+      <button class="btn" id="prev" ${current === 0 ? "disabled" : ""}>← ${current > 0 ? STATUSES[current - 1].title : ""}</button>
+      ${s.youBlocking ? `<button class="btn" id="toblocked">How blocked works</button>` : ""}
+      <button class="btn" id="next" ${current === STATUSES.length - 1 ? "disabled" : ""}>${current < STATUSES.length - 1 ? STATUSES[current + 1].title : ""} →</button>
+    </div>`;
+  $("#prev").onclick = () => { current--; render(); };
+  $("#next").onclick = () => { current++; render(); };
+  const tb = $("#toblocked"); if (tb) tb.onclick = () => { current = "blocked"; render(); };
+}
+function render() { renderStepper(); renderDetail(); }
+$("#blockbar").onclick = () => { current = "blocked"; render(); };
+document.addEventListener("keydown", e => {
+  if (e.target.tagName === "SELECT" || e.target.tagName === "INPUT") return;
+  if (typeof current !== "number") return;
+  if (e.key === "ArrowRight" && current < STATUSES.length - 1) { current++; render(); }
+  if (e.key === "ArrowLeft" && current > 0) { current--; render(); }
+});
+
+// diagram
+(function () {
+  const g = $("#dg"); const w = 140, h = 54, gap = 32, y = 70, x0 = 8;
+  const xs = STATUSES.map((_, i) => x0 + i * (w + gap));
+  let s = "";
+  STATUSES.forEach((st, i) => {
+    s += `<g style="cursor:pointer" data-i="${i}"><rect x="${xs[i]}" y="${y}" width="${w}" height="${h}" rx="10" fill="var(--panel)" stroke="${st.color}" stroke-width="2"/>
+      <text x="${xs[i] + w / 2}" y="${y + 23}" text-anchor="middle" font-weight="650">${st.title}</text>
+      <text class="sub" x="${xs[i] + w / 2}" y="${y + 41}" text-anchor="middle">${st.n}</text></g>`;
+    if (i < STATUSES.length - 1) s += `<path class="edge" d="M${xs[i] + w} ${y + h / 2} H${xs[i + 1] - 3}" marker-end="url(#arr)"/>`;
+  });
+  // blocked loops above working statuses
+  [1, 2, 3, 4].forEach(i => {
+    const cx = xs[i] + w / 2;
+    if (i === 2) { s += `<text class="sub" x="${cx}" y="${y - 14}" text-anchor="middle">blocked on a question</text>`; return; }
+    s += `<path class="edge" style="stroke: var(--blocked)" d="M${cx - 26} ${y} C ${cx - 26} ${y - 40}, ${cx + 26} ${y - 40}, ${cx + 26} ${y}" marker-end="url(#arrb)"/>
+      <text x="${cx}" y="${y - 34}" text-anchor="middle" style="fill: var(--blocked); font-size: 12px; font-weight: 600">⧉ blocked</text>`;
+  });
+  // back edges below
+  const back = (a, b, lvl, label) => {
+    const ya = y + h, yb = ya + 26 + lvl * 34;
+    s += `<path class="edge back" d="M${xs[a] + w / 2 + 14} ${ya} V${yb} H${xs[b] + w / 2 - 14} V${ya + 3}" marker-end="url(#arrb)"/>
+      <text class="sub" x="${(xs[a] + xs[b]) / 2 + w / 2}" y="${yb - 5}" text-anchor="middle">${label}</text>`;
+  };
+  back(3, 2, 0, "fix loop: failing test first");
+  back(4, 3, 1, "defect at evidence → stage 5");
+  back(4, 1, 2, "spec gap at evidence → stage 2");
+  back(2, 0, 3, "run stopped before merge, from any status (no other open PR) → todo");
+  g.innerHTML = s;
+  g.querySelectorAll("g[data-i]").forEach(n => n.onclick = () => { current = +n.dataset.i; render(); $("#stepper").scrollIntoView({ behavior: "smooth", block: "start" }); });
+})();
+
+// stage table
+$("#stagetable").innerHTML = STAGE_ROWS.map(r => {
+  const issue = r[1].split(" → ").map(x => lab(x === "closed" ? "closed" : x)).join(" → ");
+  const pr = r[2].split(" → ").map(x => x === "out of draft" ? `<span class="stagechips">out of draft</span>` : lab(x)).join(" → ");
+  return `<tr><td>${r[0]}</td><td>${issue}</td><td>${pr}${r[2].startsWith("building") && !r[2].includes("merged") ? " " + lab("draft") : ""}</td><td>${r[3] ? `<strong>${r[3]}</strong>` : `<span class="stagechips">no</span>`}</td></tr>`;
+}).join("");
+
+// simulator
+const ORDER = ["planning", "building", "testing", "documenting"];
+const PRS = [
+  { n: 93, status: "testing", blocked: false, state: "open" },
+  { n: 97, status: "planning", blocked: true, state: "open" },
+  { n: 101, status: "documenting", blocked: false, state: "merged" }
+];
+function renderSim() {
+  $("#simprs").innerHTML = `<h3 style="margin-top:0">PRs that are <code>Part of #43</code></h3>` + PRS.map((p, i) => `
+    <div class="prrow">
+      <strong>#${p.n}</strong>
+      <select data-i="${i}" data-k="state" aria-label="PR #${p.n} state">
+        ${["open", "merged", "closed"].map(o => `<option value="${o}" ${p.state === o ? "selected" : ""}>${o === "open" ? "open (draft)" : o === "closed" ? "closed unmerged" : "merged"}</option>`).join("")}
+      </select>
+      <select data-i="${i}" data-k="status" aria-label="PR #${p.n} status" ${p.state !== "open" ? "disabled" : ""}>
+        ${ORDER.map(o => `<option ${p.status === o ? "selected" : ""}>${o}</option>`).join("")}
+      </select>
+      <label class="chk"><input type="checkbox" data-i="${i}" data-k="blocked" ${p.blocked ? "checked" : ""} ${p.state !== "open" ? "disabled" : ""}> blocked</label>
+    </div>`).join("") + `<div class="navrow"><button class="btn" id="addpr">Add a PR</button><button class="btn" id="mergeall">Merge every open PR</button></div>`;
+  document.querySelectorAll("#simprs select, #simprs input").forEach(el => el.onchange = () => {
+    const p = PRS[+el.dataset.i]; const k = el.dataset.k;
+    if (k === "blocked") p.blocked = el.checked; else p[k] = el.value;
+    if (p.state !== "open") p.blocked = false;
+    renderSim();
+  });
+  $("#addpr").onclick = () => { if (PRS.length < 5) PRS.push({ n: PRS[PRS.length - 1].n + 4, status: "planning", blocked: false, state: "open" }); renderSim(); };
+  $("#mergeall").onclick = () => { PRS.forEach(p => { if (p.state === "open") { p.state = "merged"; p.blocked = false; } }); renderSim(); };
+
+  const open = PRS.filter(p => p.state === "open");
+  let labels, state, why;
+  if (open.length) {
+    const st = ORDER.find(o => open.some(p => p.status === o));
+    const bl = open.filter(p => p.blocked);
+    labels = [st].concat(bl.length ? ["blocked"] : []);
+    state = "open";
+    why = `Earliest status among the open PRs: <strong>${st}</strong> (PR #${open.find(p => p.status === st).n}).` +
+      (bl.length ? ` Blocked because ${bl.map(p => "#" + p.n).join(", ")} ${bl.length > 1 ? "wait" : "waits"} for a person, so the issue has a 🛑 comment naming ${bl.length > 1 ? "them" : "it"}.` : " No PR waits for a person.");
+  } else if (PRS.some(p => p.state === "merged")) {
+    labels = []; state = "closed";
+    why = "No open PRs are left and at least one merged, so the issue is <strong>done</strong>. It was closed with a comment naming the last PR that merged.";
+  } else {
+    labels = ["todo"]; state = "open";
+    why = "Every PR was closed unmerged, so the issue is <strong>todo</strong> again, with a comment, ready for someone to start.";
+  }
+  $("#simout").innerHTML = `
+    <h3 style="margin-top:0">Issue #43</h3>
+    <div class="issuepage">
+      <div class="ttl">Close notices in the ops inbox <span class="state-pill ${state === "closed" ? "closed" : ""}">${state === "closed" ? "Closed" : "Open"}</span></div>
+      <div class="state-row" style="margin-top:8px">${labels.length ? labels.map(lab).join("") : lab("none")}</div>
+    </div>
+    <p class="why">${why}</p>
+    <h3>Each PR</h3>
+    <div>${PRS.map(p => `<div class="state-row"><b>#${p.n}</b>${p.state === "open" ? lab(p.blocked ? "blocked" : "building") + lab("draft") + `<span class="stagechips">marker: status=${p.status}</span>` : p.state === "merged" ? lab("merged") : `<span class="label l-none">closed, no flow label</span>`}</div>`).join("")}</div>`;
+}
+
+render();
+renderSim();
+</script>
+</body>
+</html>
