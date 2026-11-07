@@ -106,6 +106,36 @@ t_eq "$(cat "$FAKE/s/pr-9.state")" "CLOSED" "the pull request is closed"
 t_eq "$(L issue 50)" "todo" "the issue is todo again"
 t_has "$(cat "$FAKE/s/issue-50.comments")" "todo\` again" "with a comment"
 
+
+# --- the status block at the top of the issue
+printf 'todo\n' > "$FAKE/s/issue-60.labels"; printf 'Close notices in the inbox.\n\nThe person wrote this.' > "$FAKE/s/issue-60.body"; pr 11 "x"
+bash "$F" start 60 11 >/dev/null
+B() { cat "$FAKE/s/issue-60.body"; }
+t_eq "$(B | head -n 1)" "<!-- issue-flow:status pr=11 -->" "the block leads the issue's body"
+t_has "$(B)" "PR #11 works on this issue (planning)" "with the start in its history"
+t_has "$(B)" "The person wrote this." "the person's text stays"
+t_eq "$(B | grep -c '^---$')" "1" "one rule between the block and the request"
+printf '### ▶️ Stage 5 of 8\n**You:** nothing to do now.\n' > "$T_TMP/now"
+run bash "$F" note 11 --now-file "$T_TMP/now" --event "Back to stage 5: a layout shift"; t_code 0 "note"
+t_has "$(B)" "**You:** nothing to do now." "the block says what to do"
+t_has "$(B)" "Back to stage 5: a layout shift" "the event is in the history"
+t_eq "$(B | grep -c '^<!-- issue-flow:status pr=11 -->')" "1" "replaced in place, not added again"
+t_eq "$(B | grep -n 'Back to stage 5' | cut -d: -f1)" "$(B | grep -n '^- ' | head -n 1 | cut -d: -f1)" "newest first"
+bash "$F" note 11 --event "only an event" >/dev/null
+t_has "$(B)" "**You:** nothing to do now." "an event alone keeps the text"
+bash "$F" block 11 < "$T_TMP/c" >/dev/null
+t_has "$(B)" "### 🛑 Waiting for you: PR #11" "a block says the person is needed"
+t_has "$(B)" "issues/60#issuecomment" "and links the request"
+bash "$F" unblock 11 >/dev/null
+t_has "$(B)" "nothing to do now: your reply was received" "unblock says nothing is needed"
+pr 12 "y"; bash "$F" start 60 12 >/dev/null
+t_eq "$(B | grep -c '^<!-- issue-flow:status pr=')" "2" "a block per pull request"
+t_eq "$(B | grep -c '^---$')" "1" "still one rule"
+for k in $(seq 1 20); do bash "$F" note 11 --event "e$k" >/dev/null; done
+t_eq "$(B | awk '/issue-flow:status pr=11 -->/{on=1} /\/issue-flow:status pr=11/{on=0} on && /^- /' | wc -l | tr -d ' ')" "15" "the history keeps the latest 15"
+t_has "$(B)" "The person wrote this." "the person's text survives every edit"
+run bash "$F" note 11 --bogus;                 t_code 2 "note: unknown option"
+
 run bash "$F" status 99 building;              t_code 1 "a pull request with no issue"
 t_has "$ERR" "names no issue" "says so"
 t_done

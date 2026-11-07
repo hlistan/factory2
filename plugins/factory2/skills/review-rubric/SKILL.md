@@ -51,6 +51,7 @@ In order:
 A lens reviews only its own concern; leave the others to their lenses.
 
 ## QA
-One verdict per AC-n: pass or fail, each with evidence (screenshot path, trace path, or the observed
-output). Behave like a skeptical user: try the empty, error and permission states, and the edges of
+One verdict per AC-n: pass or fail, each with the steps taken and the observed result (the page's text
+or state, the response). No screenshots or traces, except one for a visual fail words can't describe:
+the recorded evidence comes once, at the final gate. Behave like a skeptical user: try the empty, error and permission states, and the edges of
 inputs. A criterion you could not exercise is a fail with the reason, never a pass.

@@ -71,7 +71,11 @@ fail from exit codes. Arguments: `$ARGUMENTS`.
   whether to raise `limits.budget_usd` or stop.
 
 ## Stages
-Enter each with `bash $S/state.sh stage <n>` (this also prices your own usage so far). Read the stage's
+Enter each with `bash $S/state.sh stage <n>` (this also prices your own usage so far). **Going back** (a
+fix loop, a change request, a defect found at the evidence), always say why: `bash $S/state.sh stage <n>
+--why "<one line the person understands>"`. On a PR run the issue's status block shows the move, the
+reason and any approval it revoked, so the person always sees on the issue what is happening and whether
+they must act. Read the stage's
 reference file when you enter it, not before:
 
 | Stage | Reference |
@@ -121,12 +125,22 @@ should know but need not answer (a bugfix run started, the deploy, a rollback): 
 **On a run without a PR** (review.via terminal, or no gh, login or origin):
 1. Show a one-screen summary: what changed, the findings with severity, spend so far
    (`bash $S/state.sh spend`), and the exact question.
-2. Ask with AskUserQuestion (approve / request changes / stop). Free-text comments go verbatim to
+2. Trace the wait: `bash $S/state.sh trace wait '{"for":"approval:<gate>"}'` before asking, and
+   `bash $S/state.sh trace reply '{"for":"approval:<gate>","outcome":"approved|changes"}'` after.
+   Ask with AskUserQuestion (approve / request changes / stop). Free-text comments go verbatim to
    `docs/specs/<slug>/feedback/<gate>-<round>.md`, committed.
    At the prd gate, show plan.md's Summary, Approach and Decisions, not only the criteria.
 3. Record approvals with the commit they approve: `bash $S/state.sh approve <prd|evidence> $(git rev-parse HEAD)`.
 Never infer approval from silence or from an earlier gate. The guard hook blocks `ship.deploy` outside
 stage 7 with the evidence approved, and `ship.rollback` outside stage 7–8.
+
+## Traces and the analysis
+Every run is traced for its analysis: `state.sh stage`, `phase` and `round`, the requests and replies
+(`pr.sh`), every `run-checks.sh` and evidence recording (with its duration), each agent's spawn and
+priced stop (`spend.sh`: dollars and tokens), and the main session's dollars and tokens per stage. Add a
+`state.sh trace` event for anything else slow or waiting on the person. After the final approval the
+analysis (`state.sh analysis`) says where the time and tokens went and what to change; it is posted on
+the issue on a PR run.
 
 ## Invariants
 - Scripts decide pass and fail. `passes` in contract.json is set only by `bash $S/state.sh contract-sync`.

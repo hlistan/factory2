@@ -35,7 +35,8 @@ case "$1 $2" in
     exit 0 ;;
   "label create") printf '%s\n' "$3" >> "$FAKE/repo_labels" ;;
   "issue view") q=.; for a in "$@"; do [ "${prev:-}" = --jq ] && q="$a"; prev="$a"; done
-    jq -n --argjson l "$(jq -R '{name: .}' "$FAKE/issue_labels" 2>/dev/null | jq -s .)" --arg n "$3" '{labels: $l, url: ("https://github.com/o/r/issues/" + $n)}' | jq -r "$q" ;;
+    touch "$FAKE/issue_body.md"
+    jq -n --argjson l "$(jq -R '{name: .}' "$FAKE/issue_labels" 2>/dev/null | jq -s .)" --arg n "$3" --rawfile b "$FAKE/issue_body.md" '{labels: $l, body: $b, url: ("https://github.com/o/r/issues/" + $n)}' | jq -r "$q" ;;
   "issue comment")   # issue comment <n> --body-file <f>: kept in issue-<n>.json like the API returns it
     id=$(cat "$FAKE/next_id"); echo $((id + 1)) > "$FAKE/next_id"; sleep 1
     f="$FAKE/issue-$3.json"; [ -f "$f" ] || echo '[]' > "$f"
@@ -198,6 +199,12 @@ t_has "$req" "  /approve" "with the exact reply"
 t_has "$req" "AC-1: an empty list" "and a change example naming the run's criterion"
 t_eq "$(cat "$FAKE/labels")" "blocked" "the PR is blocked"
 t_eq "$(sort "$FAKE/issue_labels" | tr '\n' ' ')" "blocked planning " "the issue shows it next to its status"
+IB() { cat "$FAKE/issue_body.md"; }
+t_eq "$(IB | head -n 1)" "<!-- issue-flow:status pr=7 -->" "the issue's body starts with the run's status block"
+t_has "$(IB)" "### 🛑 Waiting for you: approve the plan" "it says the run waits for the person"
+t_has "$(IB)" "[open the request](https://github.com/o/r/issues/43#issuecomment-" "links the request"
+t_has "$(IB)" 'reply `/approve`' "and says what to reply"
+t_has "$(IB)" "Stage 1 of 8 · planning" "and where the run is"
 t_has "$c" "#### What will be built" "request shows what will be built"
 t_has "$c" "- **AC-1** (e2e): WHEN the user clicks the toggle THE SYSTEM SHALL switch to dark mode" "every criterion inline"
 t_has "$c" "#### How the planner proposes to build it" "and how"
@@ -239,6 +246,9 @@ t_has "$(bash "$S/state.sh" get .approvals.prd.url)" "#issuecomment-" "approval 
 t_has "$(cat "$SP/feedback/prd-2.md")" "Ship it behind the flag." "approval notes saved"
 t_has "$(jq -r '.[-1].body' "$FAKE/issue-43.json")" "Approved: the plan: what will be built and how" "approval confirmed on the issue"
 t_has "$(cat "$FAKE/body.md")" "✅ **prd** approved" "body shows the approval"
+t_has "$(IB)" "**You:** nothing to do now." "after the approval, the issue says nothing is needed"
+t_has "$(IB)" "approved the plan" "and the approval is in its history"
+t_has "$(IB)" "plan ✅" "and in its approvals line"
 t_eq "$(cat "$FAKE/labels")" "building" "the PR is building again"
 t_eq "$(sort "$FAKE/issue_labels" | tr '\n' ' ')" "planning " "the issue is no longer blocked"
 
@@ -265,6 +275,10 @@ t_eq "$(printf '%s' "$OUT" | jq -r .status)" "none" "another automation's comman
 human dev OWNER "/approve"
 run bash "$P" feedback evidence
 t_eq "$(printf '%s' "$OUT" | jq -r .status)" "approved" "evidence approved on the PR too"
+t_has "$(jq -r '.[-1].body' "$FAKE/issue-43.json")" "### 📊 Analysis: where the time and tokens went" "the final approval posts the analysis on the issue"
+t_has "$(jq -r '.[-1].body' "$FAKE/issue-43.json")" "#### What to change" "with what to change"
+t_has "$(cat "$FAKE/issue_body.md")" "[Analysis of the run](https://github.com/o/r/issues/43#issuecomment-" "the status block links it"
+t_eq "$(bash "$S/state.sh" get '[.trace[] | select(.kind == "wait" or .kind == "reply") | .for] | unique | join(" ")')" "approval:evidence approval:prd" "waits and replies are traced"
 
 run bash "$P" request-approval deploy;         t_code 2 "no deploy request"
 run bash "$P" request-approval rollback;       t_code 2 "no rollback request"
@@ -360,6 +374,14 @@ t_eq "$(cat "$FAKE/ready_calls")" "undo" "puts a ready PR back in draft"
 run bash "$P" draft;                           t_code 0 "draft again"
 t_eq "$(cat "$FAKE/ready_calls")" "undo" "and leaves a draft alone"
 touch "$FAKE/ready"; : > "$FAKE/ready_calls"
-bash "$S/state.sh" stage 7 >/dev/null; bash "$S/state.sh" stage 5 >/dev/null
+bash "$S/state.sh" stage 7 >/dev/null; bash "$S/state.sh" set '.approvals.evidence = {sha: "abc1234"}' >/dev/null
+bash "$S/state.sh" stage 5 --why "a layout shift in the inbox" >/dev/null
 t_eq "$(cat "$FAKE/ready_calls")" "undo" "going back before stage 7 makes the PR a draft"
+t_has "$(IB)" "Back to stage 5 (Review, QA and fixes) from stage 7: a layout shift in the inbox" "the issue says the run went back, and why"
+t_has "$(IB)" "Approval revoked: what was built; you will be asked again" "and that the approval no longer holds"
+t_has "$(IB)" "### ▶️ Stage 5 of 8" "the block shows the stage"
+t_hasnt "$(IB)" "The planner is writing" "not an earlier stage's phase"
+bash "$S/state.sh" phase review >/dev/null
+t_has "$(IB)" "**Now:** Review round" "the phase says what happens now"
+t_has "$(IB)" "You will be asked here to approve what was built" "and what comes next"
 t_done

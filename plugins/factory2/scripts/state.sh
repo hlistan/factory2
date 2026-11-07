@@ -17,10 +17,16 @@
 #                                    unless other PRs work on it (issue-flow.sh stop)
 #   state.sh active                  print the active slug (exit 1 if none)
 #   state.sh get <jq filter>         read state.json             state.sh set <jq expression> [jq args]
-#   state.sh stage <n>               enter stage n (prices the main session's usage so far first); going
+#   state.sh trace <kind> [<json>]   an event for the analysis: stage, phase, round, the person's waits
+#                                    and replies, and timed steps (checks, evidence) are traced already
+#   state.sh analysis [--md]         where the time and tokens went (per stage and agent, waits, loops
+#                                    back, slow steps) and what to change; writes <run>/analysis.md
+#   state.sh stage <n> [--why <text>]  enter stage n (prices the main session's usage so far first); going
 #                                    back revokes the approvals of gates at stage n or later. The run's
 #                                    issue follows (issue-flow.sh status): 1-3 planning, 4 building,
-#                                    5 testing, 6-7 documenting.
+#                                    5 testing, 6-7 documenting; its status block (pr.sh progress) says
+#                                    what moved, with --why's reason and any approval revoked. phase and
+#                                    round update the block too.
 #   state.sh phase <name>            plan|prd-review|tests|code|docs|review|evidence|ship|monitor
 #   state.sh round <name>            increment a round counter (prd, impl, review, evidence) and print it
 #   state.sh approve <gate> [sha] [--via-pr <url> --by <login>]
@@ -87,6 +93,14 @@ history_file() { printf '%s/.factory/history/%s.json' "$root" "$1"; }
 flow_status() { # <stage>: the issue's status while the run is at that stage (issue-flow.sh)
   case "$1" in 1|2|3) echo planning ;; 4) echo building ;; 5) echo testing ;; 6|7) echo documenting ;; esac
 }
+progress() { # best effort, on a run tracked on a PR: the issue's status block (pr.sh progress [--event])
+  [ -n "$(state_get '.pr // empty')" ] && [ "$(state_get '.review_via // empty')" = pr ] || return 0
+  bash "$FACTORY_SCRIPTS/pr.sh" progress ${1:+--event "$1"} >/dev/null 2>&1 || echo "factory: updating the issue's status block failed (best effort)" >&2
+}
+stage_name() {
+  case "$1" in 1) echo "Analyze and plan" ;; 2) echo "Plan review" ;; 3) echo "Fix the plan" ;; 4) echo "Implement: tests first, then code" ;;
+    5) echo "Review, QA and fixes" ;; 6) echo "Docs and evidence" ;; 7) echo "Merge and deploy" ;; 8) echo "Monitor" ;; esac
+}
 issue_flow() { # best effort, on a run tracked on a PR: issue-flow.sh <command> <pr> [args]
   local pr; pr="$(state_get '.pr // empty')"
   [ -n "$pr" ] && [ "$(state_get '.review_via // empty')" = pr ] || return 0
@@ -134,12 +148,17 @@ spend_main() { # attributes the main session's new spend to the current stage
   local t total prev stage delta
   t="$(main_transcript)"
   [ -n "$t" ] && [ -f "$t" ] || return 0
-  total="$(factory_py "$FACTORY_LIB/spend.py" "$t" "$FACTORY_LIB/prices.json" | jq -r '.usd')" || return 0
+  priced="$(factory_py "$FACTORY_LIB/spend.py" "$t" "$FACTORY_LIB/prices.json")" || return 0
+  total="$(printf '%s' "$priced" | jq -r '.usd')"
   prev="$(jq -r --arg t "$t" '.spend.main_seen[$t] // 0' "$run/state.json")"
   stage="$(jq -r '.stage // 0' "$run/state.json")"
   delta="$(jq -n --argjson a "$total" --argjson b "${prev:-0}" '([$a - $b, 0] | max)')"
-  state_update '.spend.main_seen[$t] = $total | .spend.main[$s] = ((.spend.main[$s] // 0) + $d)' \
-    --arg t "$t" --argjson total "$total" --arg s "$stage" --argjson d "$delta"
+  # tokens too, per stage: the new tokens since the last pricing of this transcript
+  state_update '.spend.main_seen[$t] = $total | .spend.main[$s] = ((.spend.main[$s] // 0) + $d)
+    | (.spend.main_tokens_seen[$t] // {}) as $old
+    | .spend.main_tokens[$s] = reduce ($tok | keys[]) as $k ((.spend.main_tokens[$s] // {}); .[$k] = ((.[$k] // 0) + ([($tok[$k] - ($old[$k] // 0)), 0] | max)))
+    | .spend.main_tokens_seen[$t] = $tok' \
+    --arg t "$t" --argjson total "$total" --arg s "$stage" --argjson d "$delta" --argjson tok "$(printf '%s' "$priced" | jq -c '.tokens // {}')"
 }
 
 # Spend totals, derived: the main session per stage plus every priced subagent spawn.
@@ -236,6 +255,7 @@ case "$cmd" in
   set) need_active; [ $# -ge 1 ] || exit 2; state_update "$@" ;;
   stage)
     need_active; n="${1:-}"; case "$n" in [1-8]) ;; *) echo "factory: stage is 1-8" >&2; exit 2 ;; esac
+    why=""; [ "${2:-}" = --why ] && why="${3:-}"
     # stages 2-7 work on the run's branch: say so before anything moves (stage 1 switches to it)
     if [ "$n" -ge 2 ] && [ "$n" -le 7 ] && [ -z "$(state_get '.ship.merged // empty')" ]; then
       on_branch || exit 1
@@ -243,10 +263,20 @@ case "$cmd" in
     spend_main
     # going back (a spec gap to stage 2, a defect or incident to stage 5, ...) revokes every approval
     # given at that stage or later: an approval holds only for the pass through the stages it was given in
+    from="$(state_get '.stage // 1')"
     revoked="$(jq -r --argjson n "$n" 'if $n < (.stage // 1) then [.approvals // {} | keys[] | select(({prd: 2, evidence: 6}[.] // 0) >= $n)] | join(" ") else "" end' "$(state_file)")"
     state_update '(if $n < (.stage // 1) then .approvals |= with_entries(select(({prd: 2, evidence: 6}[.key] // 0) < $n)) else . end) | .stage = $n | .stage_entered = $at' --argjson n "$n" --arg at "$(now_utc)"
     [ -z "$revoked" ] || echo "factory: back to stage $n; approvals revoked: $revoked"
     st="$(flow_status "$n")"; [ -z "$st" ] || issue_flow status "$st"
+    # the issue says what moved, and why when it went back (an approval given before no longer holds)
+    if [ "$n" -lt "$from" ]; then
+      ev="↩️ Back to stage $n ($(stage_name "$n")) from stage $from"
+      [ -n "$why" ] && ev="$ev: $why"
+      [ -n "$revoked" ] && ev="$ev. Approval revoked: $(printf '%s' "$revoked" | sed 's/ /, /g; s/prd/the plan/; s/evidence/what was built/'); you will be asked again"
+    elif [ "$n" != "$from" ]; then ev="Stage $n: $(stage_name "$n")${why:+ ($why)}"
+    else ev=""; fi
+    factory_trace stage "$(jq -nc --argjson n "$n" --argjson f "$from" --arg w "$why" --arg r "$revoked" '{stage: $n, from: $f, why: $w, revoked: $r}')"
+    progress "$ev"
     # before stage 7 the change is in progress: its PR is a draft (best effort; pr.sh ready undoes it)
     if [ "$n" -lt 7 ] && [ -n "$(state_get '.pr // empty')" ]; then bash "$FACTORY_SCRIPTS/pr.sh" draft >/dev/null 2>&1 || true; fi
     ;;
@@ -254,10 +284,14 @@ case "$cmd" in
     need_active
     case "${1:-}" in plan|prd-review|tests|code|docs|review|evidence|ship|monitor) ;; *) echo "factory: unknown phase '${1:-}'" >&2; exit 2 ;; esac
     state_update '.phase = $p' --arg p "$1"
+    factory_trace phase "$(jq -nc --arg p "$1" --argjson s "$(state_get '.stage // 0')" '{phase: $p, stage: $s}')"
+    progress
     ;;
   round)
     need_active; case "${1:-}" in prd|impl|review|evidence) ;; *) echo "factory: unknown round '${1:-}'" >&2; exit 2 ;; esac
     state_update '.rounds[$r] += 1' --arg r "$1" && state_get ".rounds[\"$1\"]"
+    factory_trace round "$(jq -nc --arg r "$1" --argjson n "$(state_get ".rounds[\"$1\"]")" '{round: $r, n: $n}')"
+    progress
     ;;
   approve)
     need_active; gate="${1:-}"; case "$gate" in prd|evidence) ;; *) echo "factory: gates are prd and evidence (deploy and rollback need no approval)" >&2; exit 2 ;; esac
@@ -364,6 +398,15 @@ case "$cmd" in
     factory_py "$FACTORY_LIB/fold.py" "$(history_file "$slug")" "$root" "$max" || exit $?
     echo "factory: lessons folded into .claude/agent-memory/factory-*/MEMORY.md"
     ;;
+  trace) # <kind> [<JSON object>]: an event for the analysis (a terminal gate's wait and reply, a slow step)
+    need_active; [ -n "${1:-}" ] || { echo "factory: trace <kind> [<json>]" >&2; exit 2; }
+    factory_trace "$1" "${2:-}" ;;
+  analysis) # [--md]: where the run's time and tokens went, and what to change; saved to <run>/analysis.md
+    need_active
+    out="$(factory_py "$FACTORY_LIB/analysis.py" "$(state_file)" "$(history_file "$slug")")" || exit 1
+    printf '%s' "$out" | jq -r .markdown > "$run/analysis.md"
+    history_update '.analysis = $a' --argjson a "$(printf '%s' "$out" | jq -c .summary)" 2>/dev/null || true
+    if [ "${1:-}" = --md ]; then cat "$run/analysis.md"; else printf '%s' "$out" | jq -c .summary; fi ;;
   history) need_active; [ $# -ge 1 ] || exit 2; history_update "$@" ;;
   spawn)
     need_active; agent="${1:-}"; effort="${2:-}"; model="${3:-opus}"

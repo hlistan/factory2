@@ -19,7 +19,8 @@
      under zero data retention by default), re-spawn it once with model `opus` at the same effort, tell
      the user, and suggest `roles.reviewer-security: {model: opus, effort: high}` in the config.
    - In the same batch: start the app (`project.start` with `FACTORY_PORT`, poll `project.url` +
-     `project.ready`) and spawn `qa-evaluator` with the criteria, the URL and the evidence directory
+     `project.ready`) and spawn `qa-evaluator` with the criteria, the URL and the evidence directory (it records no media, only a
+     screenshot for a visual fail)
      `<run>/evidence/qa/` (`<run>` from `bash $S/state.sh paths`; under `.factory/runs/`, git-ignored, so
      it doesn't trip the read-only hash). Stop the app after.
 6. **Challenge** (full depth only): for each blocking finding, a `challenger` tries to refute it,

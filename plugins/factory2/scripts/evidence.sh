@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 # factory stage 6: capture the evidence and build the review pack.
-#   evidence.sh capture [--ac <AC-n>]   runs the demo and writes <run>/evidence/ with manifest.json.
+#   evidence.sh capture [--ac <AC-n>]...  records the demo and writes <run>/evidence/ with manifest.json.
+#       It runs once per approval request, at the final gate, after every check passes: never as a test.
+#       --ac (repeatable): re-records only those criteria (after change requests or fixes that touched
+#         them) and keeps the earlier recording of every other test, with the commit it was recorded at.
 #       evidence.driver playwright (default): `evidence.playwright` (default `npx playwright test -c
 #         playwright.demo.config.ts`) with --grep '@AC-<n>\b' for every criterion in contract.json (or
 #         the one --ac names); only the default command needs the demo config in the project root.
@@ -55,18 +58,25 @@ to_mp4() { # converts every WebM under the evidence dir when ffmpeg is available
 
 case "$cmd" in
   capture)
-    ac=""
+    acs=""
     while [ $# -gt 0 ]; do
       case "$1" in
-        --ac) ac="${2:-}"; shift 2 || { echo "factory: $1 needs a value" >&2; exit 2; } ;;
-        *) echo "factory: capture [--ac AC-<n>]" >&2; exit 2 ;;
+        --ac) a="${2:-}"; shift 2 || { echo "factory: --ac needs a value" >&2; exit 2; }
+          printf '%s' "$a" | grep -Eq '^AC-[0-9]+$' || { echo "factory: --ac takes a criterion id like AC-3" >&2; exit 2; }
+          acs="${acs:+$acs,}$a" ;;
+        *) echo "factory: capture [--ac AC-<n>]..." >&2; exit 2 ;;
       esac
     done
-    if [ -n "$ac" ]; then
-      printf '%s' "$ac" | grep -Eq '^AC-[0-9]+$' || { echo "factory: --ac takes a criterion id like AC-3" >&2; exit 2; }
-    fi
     driver="$(cfg '.evidence.driver' playwright)"
-    rm -rf "$edir"; mkdir -p "$edir"
+    kept=""
+    if [ -n "$acs" ] && [ -f "$edir/manifest.json" ]; then
+      # re-recording some criteria: the earlier recording stays, under kept/, for every other test
+      # (an earlier kept/ nests inside it, and its paths with it)
+      rm -rf "$edir.kept"; mv "$edir" "$edir.kept"
+      mkdir -p "$edir"; mv "$edir.kept" "$edir/kept"; kept=kept
+    else
+      rm -rf "$edir"; mkdir -p "$edir"
+    fi
     port="$(state_get '.port // empty')"
     export CI=true FACTORY_EVIDENCE="$edir" FACTORY_VIEWPORTS="$(viewports)"
     if [ -n "$port" ]; then export FACTORY_PORT="$port"; [ -n "${PORT:-}" ] || export PORT="$port"; fi
@@ -80,7 +90,7 @@ case "$cmd" in
         if [ "$pw" = "$default_pw" ] && [ ! -f "$root/playwright.demo.config.ts" ]; then
           echo "factory: playwright.demo.config.ts is missing in the project root; /factory2:init copies it from the plugin's templates" >&2; exit 2
         fi
-        if [ -n "$ac" ]; then grep="@${ac}\\b"
+        if [ -n "$acs" ]; then grep="@($(printf '%s' "$acs" | tr ',' '|'))\\b"
         else
           ids="$(jq -r '[.criteria // [] | .[] | .id | select(test("^AC-[0-9]+$")) | sub("^AC-"; "")] | join("|")' "$spec/contract.json" 2>/dev/null)"
           [ -n "$ids" ] || { echo "factory: no criteria in $spec/contract.json" >&2; exit 2; }
@@ -104,6 +114,7 @@ case "$cmd" in
     base="$(state_get '.base // empty')"
     factory_py "$FACTORY_LIB/evidence.py" manifest "$edir" "$driver" "$code" "$(git -C "$root" rev-parse HEAD 2>/dev/null)" \
       ${base:+--base "$base" --root "$root"} || exit 1
+    [ -z "$kept" ] || factory_py "$FACTORY_LIB/evidence.py" merge "$edir" kept "$acs" || exit 1
     [ "$code" = 0 ] || echo "factory: the demo run exited $code: some criteria failed on camera; the pack shows which" >&2
     state_update '.evidence = {captured_at: $at, head: $h, driver: $d, exit: ($c | tonumber)}' \
       --arg at "$(now_utc)" --arg h "$(git -C "$root" rev-parse HEAD 2>/dev/null)" --arg d "$driver" --arg c "$code"

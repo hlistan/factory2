@@ -305,7 +305,36 @@ def cmd_pack(edir, pdir, contract_path, info_path):
     return 0
 
 
+def cmd_merge(edir, kept, acs):
+    """Keeps the earlier recording of every test that covers none of the re-recorded criteria."""
+    redo = set(a for a in acs.split(",") if a)
+    with open(os.path.join(edir, "manifest.json"), encoding="utf-8") as f:
+        m = json.load(f)
+    try:
+        with open(os.path.join(edir, kept, "manifest.json"), encoding="utf-8") as f:
+            old = json.load(f)
+    except (OSError, ValueError):
+        return 0
+    keep = []
+    for t in old.get("tests", []):
+        if not t.get("ac") or redo & set(t["ac"]):
+            continue
+        t = dict(t)
+        t["media"] = [dict(x, path=kept + "/" + x["path"]) for x in t.get("media", [])]
+        t["recorded_at"] = old.get("head")
+        keep.append(t)
+    m["tests"] = keep + m["tests"]
+    m["rerecorded"] = sorted(redo)
+    m["kept_from"] = old.get("head")
+    with open(os.path.join(edir, "manifest.json"), "w", encoding="utf-8") as f:
+        json.dump(m, f, indent=2)
+    print(f"factory: evidence: re-recorded {', '.join(sorted(redo))}; kept {len(keep)} earlier recording(s)")
+    return 0
+
+
 def main(argv):
+    if len(argv) == 5 and argv[1] == "merge":
+        return cmd_merge(argv[2], argv[3], argv[4])
     if argv[1:2] == ["manifest"] and len(argv) in (6, 10):
         opts = dict(zip(argv[6::2], argv[7::2]))
         if set(opts) - {"--base", "--root"} or (opts and len(opts) != 2):

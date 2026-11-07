@@ -32,6 +32,29 @@ when its last pull request merges). It carries `building` while in progress (and
 With several open pull requests, the issue shows the earliest status among them, and `blocked` while
 any of them is blocked.
 
+## The status block: what is happening, what to do
+The top of the issue's body has one block per pull request, kept up to date by the flow (never edit it):
+what is happening now, **whether you must do anything** (with the link and the exact reply) or that
+nothing is needed, what comes next, the approvals so far, and the history, newest first (the stages, an
+approval, a run going back and why, a revoked approval, the merge). The person's own text stays below it.
+
+```markdown
+### 🛑 Waiting for you: approve what was built (evidence)
+Stage 6 of 8 · documenting: docs, then the evidence for your approval
+
+🛑 **You:** [open the request](…) and reply `/approve`, or write your change requests there.
+
+**Approvals:** plan ✅ (`18c0520`) · what was built not yet
+<details><summary>History of PR #93</summary>
+
+- 2026-11-07T18:12Z · Stage 6: Docs and evidence
+- 2026-11-07T13:43Z · ↩️ Back to stage 5 (Review, QA and fixes) from stage 6: a layout shift in the inbox. Approval revoked: what was built; you will be asked again
+</details>
+```
+
+`bash $F note <pr> [--now-file <f>] [--event <text>]` writes it; `start`, `block`, `unblock`, `merged` and
+`stop` update it themselves.
+
 ## Asking a person
 Everything a person must do is a comment **on the issue** that names the pull request, so the issue's
 page and notifications are the one place to look. `bash $F block <pr>` takes the comment on stdin, marks
@@ -59,6 +82,7 @@ When the person has answered, `bash $F unblock <pr>`.
 - `merged <pr>`: after the merge; closes the issue when it was the last open pull request.
 - `stop <pr>`: the work stopped unmerged; closes the pull request, and the issue is `todo` again
   unless other pull requests work on it.
+- `note <pr> [--now-file <f>] [--event <text>]`: the pull request's status block on the issue (above).
 - `show <issue>`, `issue <pr>`.
 
 Never set these labels by hand (`gh issue edit --add-label`): the flow recomputes them from the pull
@@ -73,4 +97,5 @@ requests, and factory's guard blocks it during a run.
 In a factory run, `/factory2:run` does all of this itself: `pr.sh open` creates the issue when the run
 has none and calls `start`; `state.sh stage` sets the status (stages 1-3 planning, 4 building,
 5 testing, 6-7 documenting); `pr.sh request-approval` and `pr.sh ask` block; their replies unblock;
-`ship.sh merge` calls `merged`; `state.sh end --stop` calls `stop`.
+`ship.sh merge` calls `merged`; `state.sh end --stop` calls `stop`; and `pr.sh progress` rewrites the
+status block from the run's state at every stage, phase, round, request and reply.

@@ -31,6 +31,11 @@
 #                                  names them, and the PR goes back to draft); 4 on timeout.
 #   pr.sh draft                    the change is in progress: puts the PR back in draft when it isn't.
 #                                  state.sh stage calls it when the run goes back before stage 7.
+#   pr.sh progress [--event <text>]  rewrites the run's status block at the top of the issue (issue-flow.sh
+#                                  note) from the run's state: the stage, what is happening now, what the
+#                                  person must do (with the link) or that nothing is needed, what comes next
+#                                  and the approvals; --event adds a line to its history. state.sh stage,
+#                                  phase and round call it, and so do the requests and replies here.
 #   pr.sh notify                   stdin: markdown that informs the person and needs no reply (a bugfix run
 #                                  started, the deploy); posted on the run's issue.
 #   pr.sh ask                      stdin: a question for the person (an escalation: a round or budget limit,
@@ -106,6 +111,65 @@ gate_examples() { # <gate>: example change requests, naming the run's first crit
   esac
 }
 approve_cmd() { echo /approve; }
+progress_md() { # the status block's "now" part, from the run's state
+  local st ph req q n lim what you next ap
+  st="$(state_get '.stage // 1')"; ph="$(state_get '.phase // empty')"
+  case "$st" in
+    1) what="Stage 1 of 8 · planning: analyzing the request and writing the plan" ;;
+    2) what="Stage 2 of 8 · planning: the plan is reviewed before you see it" ;;
+    3) what="Stage 3 of 8 · planning: revising the plan" ;;
+    4) what="Stage 4 of 8 · building: tests first, then the code" ;;
+    5) what="Stage 5 of 8 · testing: review, QA and fixes" ;;
+    6) what="Stage 6 of 8 · documenting: docs, then the evidence for your approval" ;;
+    7) what="Stage 7 of 8 · merging and deploying" ;;
+    8) what="Stage 8 of 8 · monitoring production after the deploy" ;;
+  esac
+  rnd() { n="$(state_get ".rounds.$1 // 0")"; lim="$(cfg ".limits.$2" '')"; printf 'round %s%s' "$n" "${lim:+ of $lim}"; }
+  case "$ph" in
+    plan) now="The planner is writing the PRD (acceptance criteria) and plan.md ($(rnd prd prd_rounds))." ;;
+    prd-review) now="A reviewer checks the plan in a fresh context before you are asked." ;;
+    tests) now="Writing a failing test for each acceptance criterion, then freezing the tests." ;;
+    code) now="Making the frozen tests pass ($(rnd impl impl_rounds)); every check must be green." ;;
+    review) now="Review $(rnd review review_rounds): correctness, security and spec reviewers, and QA in the running app. Each confirmed problem gets a failing test, then a fix." ;;
+    docs) now="Updating README, docs and CHANGELOG for the tested behaviour." ;;
+    evidence) now="Recording the evidence ($(rnd evidence evidence_rounds)): a demo video and screenshots per criterion, and the review pack." ;;
+    ship) now="Taking the PR out of draft, waiting for its checks, then merging, deploying and running the smoke test." ;;
+    monitor) now="Watching the production checks." ;;
+    *) now="" ;;
+  esac
+  # a phase left over from an earlier stage says nothing about this one
+  case "$ph:$st" in plan:[13]|prd-review:2|tests:[45]|code:[45]|review:5|docs:6|evidence:6|ship:7|monitor:8) ;; *) now="" ;; esac
+  req="$(state_get '.approval_request // empty')"; q="$(state_get '.question // empty')"
+  if [ -n "$req" ]; then
+    printf '### 🛑 Waiting for you: approve %s\n' "$(gate_what "$(printf '%s' "$req" | jq -r .gate)")"
+    you="🛑 **You:** [open the request]($(printf '%s' "$req" | jq -r .url)) and reply \`/approve\`, or write your change requests there. The run waits for you."
+  elif [ -n "$q" ]; then
+    printf '### 🛑 Waiting for you: a decision\n'
+    you="🛑 **You:** [answer the question]($(printf '%s' "$q" | jq -r .url)). The run waits for you."
+  else
+    printf '### ▶️ %s\n' "$what"
+    you="**You:** nothing to do now."
+  fi
+  ap="$(state_get '.approvals // {}')"
+  if [ -n "$req" ] || [ -n "$q" ]; then next=""
+  elif [ "$st" -le 3 ] && ! printf '%s' "$ap" | jq -e .prd >/dev/null; then next="You will be asked here to approve the plan before any code is written."
+  elif [ "$st" -le 6 ] && ! printf '%s' "$ap" | jq -e .evidence >/dev/null; then next="You will be asked here to approve what was built before it merges."
+  elif [ "$st" -le 7 ]; then next="Merge, deploy and the smoke test follow on your approval, without asking again."
+  else next="If a production check fails, an \`Incident:\` issue is filed for a fix run."; fi
+  { [ -n "$req$q" ] && printf '%s\n\n' "$what"
+    [ -n "$now" ] && printf '**Now:** %s\n\n' "$now"
+    printf '%s%s\n\n' "$you" "${next:+ $next}"
+    printf '**Approvals:** plan %s · what was built %s\n\n' \
+      "$(printf '%s' "$ap" | jq -r 'if .prd then "✅ (`\(.prd.sha[0:7])`)" else "not yet" end')" \
+      "$(printf '%s' "$ap" | jq -r 'if .evidence then "✅ (`\(.evidence.sha[0:7])`)" else "not yet" end')"
+    printf '<sub>%s · branch `%s` · run `%s` · updated %s</sub>\n' "$(pr_link)" "$branch" "$slug" "$(date -u '+%Y-%m-%d %H:%M UTC')"
+  } | sed '/./,$!d'
+}
+progress() { # [event]: best effort
+  [ "$(state_get '.review_via // empty')" = pr ] && [ -n "$(pr_num)" ] || return 0
+  local f="$run/.progress.md"; progress_md > "$f"
+  flow note "$(pr_num)" --now-file "$f" ${1:+--event "$1"} >/dev/null 2>&1 || echo "factory: updating the issue's status block failed (best effort)" >&2
+}
 flow() { (cd "$root" && bash "$S/issue-flow.sh" "$@"); }
 fenced() { # stdin: lines, as an indented code block inside a list item
   printf '  ```\n'; sed 's/^/  /'; printf '  ```\n'
@@ -440,6 +504,8 @@ case "$cmd" in
     [ -n "$u" ] || die "posting the approval request on the issue failed"
     state_update '.approval_request = {gate: $g, sha: $s, url: $u, details: $d, at: $at}' --arg g "$gate" --arg s "$sha" --arg u "$u" --arg d "$du" --arg at "$(now_utc)"
     body
+    factory_trace wait "$(jq -nc --arg g "$gate" '{for: ("approval:" + $g)}')"
+    progress
     echo "factory: approval of $gate at $h7 requested: $u"
     ;;
 
@@ -497,6 +563,7 @@ case "$cmd" in
         c="$run/.pr-comment.md"
         { marker "note:$n"; echo; printf 'The approval was not recorded: %s. Reply `%s` to the latest approval request: %s\n' "$inv" "$(approve_cmd)" "$(state_get '.approval_request.url // empty')"; } > "$c"
         post_human "$c" >/dev/null || true
+        progress "⚠️ An approval was not recorded: $inv"
       fi
       if [ "$status" = changes ] || [ "$status" = approved ]; then
         mkdir -p "$root/$spec/feedback"
@@ -529,6 +596,13 @@ case "$cmd" in
         state_update 'del(.approval_request)'
         flow unblock "$(pr_num)" >/dev/null || echo "factory: issue-flow.sh unblock failed" >&2
         body
+        factory_trace reply "$(jq -nc --arg g "$gate" '{for: ("approval:" + $g), outcome: "approved"}')"
+        progress "✅ $who approved $(gate_what "$gate") at \`$(printf %s "$sha" | cut -c1-7)\`"
+        # the final approval: where the time and tokens went, and what to change next time
+        if [ "$gate" = evidence ] && bash "$S/state.sh" analysis >/dev/null 2>&1 && [ -s "$run/analysis.md" ]; then
+          c="$run/.issue-comment.md"; { marker "analysis"; echo; cat "$run/analysis.md"; } > "$c"
+          au="$(post_human "$c")" && progress "📊 [Analysis of the run]($au): where the time and tokens went, and what to change"
+        fi
       elif [ "$status" = changes ]; then
         c="$run/.pr-comment.md"
         { marker "received:$gate:$n"; echo
@@ -542,6 +616,8 @@ case "$cmd" in
         state_update 'if .approval_request.gate == $g then del(.approval_request) else . end' --arg g "$gate"
         flow unblock "$(pr_num)" >/dev/null || echo "factory: issue-flow.sh unblock failed" >&2
         body
+        factory_trace reply "$(jq -nc --arg g "$gate" '{for: ("approval:" + $g), outcome: "changes"}')"
+        progress "✏️ $(printf '%s' "$result" | jq '.corrections | length') change request(s) received at the $gate gate; factory works on them and asks again"
       fi
       out="$(printf '%s' "$result" | jq -c --arg fb "$fb" '{status, corrections: (.corrections | length), approvals: (.approvals | length),
         feedback_file: (if .status == "none" then null else $fb end), ignored, approval_invalid, approval_ignored,
@@ -552,6 +628,9 @@ case "$cmd" in
     done
     ;;
 
+  progress)
+    ev=""; [ "${1:-}" = --event ] && ev="${2:-}"
+    progress "$ev" ;;
   notify)   # stdin: markdown for the person, nothing to reply: on the run's issue
     need_pr
     m="$(cat)"; [ -n "$m" ] || die "notify: the message comes on stdin"
@@ -574,6 +653,8 @@ case "$cmd" in
     [ -n "$u" ] || die "posting the question failed"
     state_update '.questions = $n | .question = {n: $n, url: $u, at: $at}' --argjson n "$n" --arg u "$u" --arg at "$(now_utc)"
     body
+    factory_trace wait "$(jq -nc --argjson n "$n" '{for: ("question:" + ($n | tostring))}')"
+    progress
     echo "factory: question $n asked: $u"
     ;;
   answer)
@@ -602,6 +683,8 @@ case "$cmd" in
         post_human "$c" >/dev/null || true
         flow unblock "$(pr_num)" >/dev/null || echo "factory: issue-flow.sh unblock failed" >&2
         body
+        factory_trace reply "$(jq -nc --argjson n "$n" '{for: ("question:" + ($n | tostring)), outcome: "answered"}')"
+        progress "💬 Your answer to question $n was received; the run continues"
         jq -cn --arg f "$fb" --argjson a "$ans" '{status: "answered", file: $f, authors: [$a[] | .author] | unique}'
         exit 0
       fi

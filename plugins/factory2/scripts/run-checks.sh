@@ -70,6 +70,7 @@ port="$( [ -n "$run" ] && jq -r '.port // empty' "$run/state.json" 2>/dev/null)"
 tmp="$(mktemp -d)"
 results="$tmp/results"; : > "$results"
 ran=""; failed=0; known=""; failed_names=""; total_start="$(date +%s)"
+trap 'c=$?; rm -rf "$plan" "${tmp:-}"; factory_step "checks:$set_name${only:+:$only}" "$total_start" "$c"' EXIT
 
 is_known() { [ -n "$known_failures" ] && [ -f "$known_failures" ] && grep -F -x -q -e "$1" "$known_failures"; }
 

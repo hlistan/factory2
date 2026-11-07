@@ -137,6 +137,16 @@ factory_guard_prereqs() { # guard-bash: outside a factory project, nothing to gu
 
 now_utc() { date -u +%Y-%m-%dT%H:%M:%SZ; }
 
+factory_trace() { # <kind> [<JSON object>]: appends {at, kind, ...} to the active run's trace, which
+  # state.sh analysis reads (time per stage, waits for the person, slow steps). Best effort, silent.
+  local k="$1" o="${2:-}"; [ -n "$o" ] || o='{}'
+  [ -n "$(factory_active_slug 2>/dev/null)" ] || return 0
+  state_update '.trace = ((.trace // []) + [{at: $at, kind: $k} + $o])' --arg at "$(now_utc)" --arg k "$k" --argjson o "$o" >/dev/null 2>&1 || true
+}
+factory_step() { # <name> <started epoch> <exit code>: traces a timed step
+  factory_trace step "$(jq -nc --arg n "$1" --argjson s "$(( $(date +%s) - $2 ))" --argjson c "${3:-0}" '{name: $n, secs: $s, exit: $c}')"
+}
+
 factory_hook_log() { # <hook> <input>: with $FACTORY_HOOK_LOG set (a directory), saves the raw hook input
   # as one file per call, <epoch>-<pid>-<hook>.json, for the live tests. One file per call because
   # hooks run in parallel and long appends to a shared file interleave.

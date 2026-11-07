@@ -11,14 +11,23 @@ the project has is a check like any other): any failure goes back to the same im
 to the user. Commit `factory(<slug>): 6.0 docs`. Every return to stage 6 after a fix loop runs 6.0 again,
 so the docs match what is approved.
 
-## 6.1 Evidence (`phase evidence`)
-1. `n=$(bash $S/state.sh round evidence)`. Beyond `limits.evidence_rounds`: stop and ask the user.
-2. `bash $S/evidence.sh capture`: runs the `@AC-n` e2e specs under `playwright.demo.config.ts` (a
+## 6.1 Evidence (`phase evidence`): recorded once, at the final gate
+The recording is what the person approves, not a test: it runs only when nothing else can fail, and once
+per approval request.
+1. **Preflight, no recording.** `bash $S/run-checks.sh --set all --known-failures <run>/baseline-failures`
+   and `bash $S/state.sh contract-sync` must both pass (every check green, every criterion `passes`). A
+   failure is a defect: `bash $S/state.sh stage 5 --why "<what failed>"` and the fix loop, without recording
+   anything. Then `n=$(bash $S/state.sh round evidence)`. Beyond `limits.evidence_rounds`: stop and ask.
+2. **Record.** First request (or after a spec gap, which changes criteria): `bash $S/evidence.sh capture`,
+   every criterion. A later round, after fixes or cosmetic changes: `bash $S/evidence.sh capture --ac
+   AC-3 --ac AC-7` with only the criteria whose tests or behaviour the fixes touched (the fix commits
+   name them); every other criterion keeps its earlier recording (the pack shows the commit it was
+   recorded at). It runs the `@AC-n` e2e specs under `playwright.demo.config.ts` (a
    video with the test title, steps and actions overlaid, and a screenshot, per test and per
    `evidence.viewports` size), converts the videos to mp4 when ffmpeg is available, and writes
    `<run>/evidence/` with `manifest.json`. With `evidence.driver: command` it runs `evidence.capture`;
-   with `none` it records test results only. Failing demo tests still produce evidence (exit 0, with a
-   warning: the pack shows them as not passing). Exit 1 means nothing was recorded: read
+   with `none` it records test results only. A demo test failing on camera after a green preflight is a
+   flaky test: back to stage 5 with `--why`, not another recording. Exit 1 means nothing was recorded: read
    `<run>/evidence/run.log` (often a missing browser: `npx playwright install chromium`) and fix it
    before asking anyone to review. Exit 2 is a config problem; a missing demo config: copy
    `${CLAUDE_PLUGIN_ROOT}/templates/playwright.demo.config.ts` to the project root and commit it (it
@@ -38,6 +47,10 @@ so the docs match what is approved.
 5. **Approve** (`approved` from pr.sh, or the terminal answer, then `bash $S/state.sh approve evidence
    $(git rev-parse HEAD)` on a terminal run only): go to 7. The PR stays a draft until the merge. This is the last
    approval: stage 7 merges and deploys on it (on a terminal run, say so when you ask).
+   **Analysis.** On a PR run pr.sh posts it on the issue with the approval (`📊 Analysis`): time, tokens
+   and money per stage and agent, waits for the person, loops back with their reasons, repeated or slow
+   steps, and what to change. On a terminal run, `bash $S/state.sh analysis --md` and show it. Mention
+   its first two "What to change" points to the user in one line each.
 6. **Comments**: spawn `triager` (read-only) with the comments, the PRD, contract.json and the QA
    report. It classifies each comment:
    - **spec-gap** (the PRD didn't ask for it): planner amends the PRD (new or changed criterion) → stage 2.

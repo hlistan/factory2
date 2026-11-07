@@ -12,7 +12,8 @@
 # (no closing keyword: the issue closes only when its last pull request merges). An issue with several
 # open pull requests shows the earliest status among them, and blocked while any of them is blocked.
 # When a pull request needs a person, the request is a comment on the issue that names the pull request;
-# the details stay on the pull request.
+# the details stay on the pull request. The top of the issue's body says, for each pull request, what is
+# happening now, what the person must do (or that nothing is needed), and what happened so far.
 #
 #   issue-flow.sh setup                      creates the labels (idempotent)
 #   issue-flow.sh start <issue> <pr> [status] the pull request works on the issue (status: planning)
@@ -25,6 +26,12 @@
 #                                            pull requests is open
 #   issue-flow.sh stop <pr>                  the work stopped unmerged: closes the pull request; the issue
 #                                            goes back to todo when no other of its pull requests is open
+#   issue-flow.sh note <pr> [--now-file <f>] [--event <text>]
+#                                            the status block at the top of the issue's body, one per pull
+#                                            request: what is happening now and what the person must do
+#                                            (--now-file: markdown; without it the block keeps its text),
+#                                            and its history, newest first (--event adds a line). Every other
+#                                            command keeps it up to date too.
 #   issue-flow.sh show <issue>               the issue's status and its open pull requests
 #   issue-flow.sh issue <pr>                 prints the issue a pull request works on
 # References are numbers, #n, or URLs in the current repository (gh's, or GH_REPO).
@@ -103,6 +110,40 @@ sync_issue() { # <issue> [<pr to leave out>]: the issue follows its open pull re
   set_labels issue "$1" "$st $blocked"
 }
 
+
+# --- the status block in the issue's body: <!-- issue-flow:status pr=N --> ... <!-- /issue-flow:status pr=N -->
+NOTE_EVENTS=15
+now_utc() { date -u +%Y-%m-%dT%H:%MZ; }
+note() { # <issue> <pr> <now markdown file or ""> <event or "">
+  local i="$1" p="$2" nowf="$3" ev="$4" body old f nb
+  body="$(gh issue view "$i" --json body --jq '.body // ""')" || { echo "issue-flow: reading issue #$i failed" >&2; return 1; }
+  old="$(printf '%s\n' "$body" | awk -v s="<!-- issue-flow:status pr=$p -->" -v e="<!-- /issue-flow:status pr=$p -->" '$0 == s {on = 1; next} $0 == e {on = 0} on')"
+  f="$(mktemp)"; nb="$(mktemp)"
+  {
+    printf '<!-- issue-flow:status pr=%s -->\n' "$p"
+    if [ -n "$nowf" ]; then cat "$nowf"; else printf '%s\n' "$old" | awk '/^<!-- issue-flow:history -->$/ {exit} {print}'; fi
+    printf '<!-- issue-flow:history -->\n<details><summary>History of PR #%s</summary>\n\n' "$p"
+    { [ -z "$ev" ] || printf -- '- %s · %s\n' "$(now_utc)" "$(printf '%s' "$ev" | tr '\n' ' ')"
+      printf '%s\n' "$old" | awk '/^<!-- issue-flow:history -->$/ {on = 1; next} on && /^- / {print}'
+    } | head -n "$NOTE_EVENTS"
+    printf '\n</details>\n<!-- /issue-flow:status pr=%s -->\n' "$p"
+  } > "$f"
+  # in place when the block exists, else at the top (above the request), followed by a rule
+  if printf '%s\n' "$body" | grep -qxF "<!-- issue-flow:status pr=$p -->"; then
+    printf '%s\n' "$body" | awk -v s="<!-- issue-flow:status pr=$p -->" -v e="<!-- /issue-flow:status pr=$p -->" -v f="$f" '
+      $0 == s {while ((getline l < f) > 0) print l; skip = 1; next} skip && $0 == e {skip = 0; next} !skip' > "$nb"
+  else
+    { cat "$f"; printf '\n'
+      printf '%s\n' "$body" | grep -q '^<!-- issue-flow:status pr=' || printf -- '---\n\n'
+      printf '%s\n' "$body"; } > "$nb"
+  fi
+  gh issue edit "$i" --body-file "$nb" >/dev/null || { rm -f "$f" "$nb"; echo "issue-flow: editing issue #$i failed" >&2; return 1; }
+  rm -f "$f" "$nb"
+}
+nowtext() { # <file> <markdown>: a short "now" for a block nobody else writes
+  printf '%s\n' "$2" > "$1"
+}
+
 cmd="${1:-}"; [ $# -gt 0 ] && shift
 case "$cmd" in
   ''|-h|--help) sed -n '2,/^set -u/p' "$0" | sed '$d'; exit 0 ;;
@@ -114,6 +155,7 @@ case "$cmd" in
     # a pull request waiting for a person stays blocked when it is started again (a resumed run)
     if labels_of pr "$p" | grep -qx blocked; then set_labels pr "$p" blocked; else set_labels pr "$p" building; fi
     sync_issue "$i" || true
+    note "$i" "$p" "" "PR #$p works on this issue ($st)" || true
     echo "issue-flow: #$p works on #$i ($st)" ;;
   status)
     p="$(num "${1:-}")" || usage "status <pr> <status>"
@@ -130,16 +172,27 @@ case "$cmd" in
     sync_issue "$i" || true
     f="$(mktemp)"; printf '%s\n' "$body" > "$f"
     u="$(gh issue comment "$i" --body-file "$f" | tail -n 1)" || { rm -f "$f"; die "commenting on issue #$i failed"; }
-    rm -f "$f"; printf '%s\n' "$u" ;;
+    rm -f "$f"
+    t="$(printf '%s\n' "$body" | grep -v '^<!--' | grep -m1 . | sed -E 's/^#+ *//; s/^🛑 *//')"
+    nf="$(mktemp)"; nowtext "$nf" "### 🛑 Waiting for you: PR #$p
+**You:** $t. [Open the request]($u): it says exactly what to reply."
+    note "$i" "$p" "$nf" "🛑 Asked: $t ([request]($u))" || true; rm -f "$nf"
+    printf '%s\n' "$u" ;;
   unblock)
     p="$(num "${1:-}")" || usage "unblock <pr>"
     i="$(pr_issue "$p")" || exit 1
     set_labels pr "$p" building
-    sync_issue "$i" || true ;;
+    sync_issue "$i" || true
+    nf="$(mktemp)"; nowtext "$nf" "### ▶️ Working on PR #$p
+**You:** nothing to do now: your reply was received."
+    note "$i" "$p" "$nf" "Your reply was received; working again" || true; rm -f "$nf" ;;
   merged)
     p="$(num "${1:-}")" || usage "merged <pr>"
     i="$(pr_issue "$p")" || exit 1
     set_labels pr "$p" ""
+    nf="$(mktemp)"; nowtext "$nf" "### ✅ PR #$p is merged
+**You:** nothing to do."
+    note "$i" "$p" "$nf" "✅ PR #$p merged" || true; rm -f "$nf"
     if sync_issue "$i" "$p"; then
       echo "issue-flow: #$p merged; #$i stays open for its other pull requests"
     else
@@ -152,15 +205,27 @@ case "$cmd" in
     i="$(pr_issue "$p")" || exit 1
     set_labels pr "$p" ""
     gh pr close "$p" --comment "Stopped before merge; issue #$i keeps the request." >/dev/null || die "closing pull request #$p failed"
+    nf="$(mktemp)"; nowtext "$nf" "### ⏹ PR #$p was stopped before merge
+**You:** nothing to do for this PR."
+    note "$i" "$p" "$nf" "⏹ PR #$p stopped before merge" || true; rm -f "$nf"
     if ! sync_issue "$i" "$p"; then
       set_labels issue "$i" todo
       gh issue comment "$i" --body "The work on #$p stopped before merge. This issue is \`todo\` again: it is built when someone starts it." >/dev/null || true
     fi
     echo "issue-flow: #$p stopped" ;;
+  note)
+    p="$(num "${1:-}")" || usage "note <pr> [--now-file <f>] [--event <text>]"; shift
+    nowf=""; ev=""
+    while [ $# -gt 0 ]; do case "$1" in
+      --now-file) nowf="${2:-}"; [ -f "$nowf" ] || usage "note: --now-file needs a file"; shift 2 ;;
+      --event) ev="${2:-}"; shift 2 || usage "note: --event needs a text" ;;
+      *) usage "note <pr> [--now-file <f>] [--event <text>]" ;; esac; done
+    i="$(pr_issue "$p")" || exit 1
+    note "$i" "$p" "$nowf" "$ev" || exit 1 ;;
   show)
     i="$(num "${1:-}")" || usage "show <issue>"
     printf '#%s: %s\n' "$i" "$(labels_of issue "$i" | grep -xE "$(echo "$FLOW" | tr ' ' '|')" | paste -sd' ' -)"
     open_prs "$i" | jq -r '.[] | "  #\(.number): \(if .blocked then "blocked" else "building" end) (\(.status))"' ;;
   issue) p="$(num "${1:-}")" || usage "issue <pr>"; pr_issue "$p" ;;
-  *) usage "unknown command '$cmd' (setup, start, status, block, unblock, merged, stop, show, issue)" ;;
+  *) usage "unknown command '$cmd' (setup, start, status, block, unblock, merged, stop, note, show, issue)" ;;
 esac
