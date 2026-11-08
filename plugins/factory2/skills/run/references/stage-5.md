@@ -10,7 +10,8 @@
    both before step 6. Failures go to triage (step 3a), then to the fix loop as blocking findings.
 3a. **Flake triage**, for each test that failed in a check: run it again alone, its check's command
    narrowed to it, `--repeat-each 3` (or the runner's equivalent) on every project that failed it, into
-   that check's report folder, then `bash $S/state.sh flaky --test "<name>"`. FLAKY means every rerun
+   `FACTORY_REPORTS=<run>/reruns/<check>` (never the check's own report folder, which contract-sync
+   reads), then `bash $S/state.sh flaky --test "<name>"`. FLAKY means every rerun
    passed: when neither the test's file nor the code it exercises is in the change (`change-diff.sh
    <base> --stat`), it is a pre-existing flake: it is recorded, later runs pass over it (`--flakes`), it
    is listed at the stage 6 gate as advisory, and stage 7 offers to file it as an issue. It never opens

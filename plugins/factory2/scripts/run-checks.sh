@@ -24,6 +24,9 @@
 # Exit status: 0 all passed (or failed only where known), 1 a check failed, 2 usage or config error,
 # 3 nothing to run.
 set -u
+# The whole script is one compound command, so bash parses it before running any of it: a full run
+# takes most of an hour, and an edit to this file meanwhile would otherwise break the run in flight.
+{
 . "$(cd "$(dirname "$0")" && pwd)/lib/common.sh"
 factory_need jq python3
 
@@ -184,3 +187,4 @@ if [ -n "$reused" ]; then
 fi
 echo "run-checks: passed ($ran) in $(( $(date +%s) - total_start ))s"
 exit 0
+}

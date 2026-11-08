@@ -38,17 +38,20 @@ export E2E_XML="$fail_xml"
 run bash "$S/run-checks.sh" --set slow
 t_code 1 "a failing test fails the run before it is a confirmed flake"
 
+mkdir -p "$run_dir/reruns/e2e"; cp "$fail_xml" "$run_dir/reruns/e2e/junit.xml"
 run bash "$S/state.sh" flaky --test "prompt stays"
 t_code 1 "a test whose rerun still fails is not a flake"
 t_has "$OUT" "prompt stays	FAILS" "says the rerun failed"
 t_eq "$(cat "$run_dir/flakes" 2>/dev/null)" "" "nothing recorded for a real failure"
 
-E2E_XML="$pass_xml" E2E_EXIT=0 bash "$S/run-checks.sh" --set slow >/dev/null
+# The reruns go to <run>/reruns/<check>, never over the full run's reports (contract-sync reads those).
+mkdir -p "$run_dir/reruns/e2e"; cp "$pass_xml" "$run_dir/reruns/e2e/junit.xml"
 run bash "$S/state.sh" flaky --test "missing one"
 t_code 1 "a test with no rerun result is not a flake"
 t_has "$OUT" "NOT-VISIBLE" "says it was not rerun"
 run bash "$S/state.sh" flaky --test "prompt stays"
 t_code 0 "a test that passes every rerun is a confirmed flake"
+t_has "$(cat "$run_dir/reports/e2e/junit.xml")" "<failure/>" "the full run's report is left as it was"
 t_has "$OUT" "prompt stays	FLAKY	2 rerun(s) pass" "reports the reruns"
 t_eq "$(cat "$run_dir/flakes")" "home::prompt stays" "the flake is listed for run-checks"
 t_eq "$(jq -r '.flakes[0].test' "$R/.factory/history/speedy.json")" "home::prompt stays" "the flake is in the run's history"
@@ -90,5 +93,15 @@ E2E_EXIT=1 run bash "$S/run-checks.sh" --set all --json "$T_TMP/g.json"
 t_eq "$(jq -r '.checks_green' "$run_dir/state.json")" "null" "a failed full run forgets the green one"
 run bash "$S/run-checks.sh" --set fast --since-green
 t_code 2 "--since-green is for the full set only"
+
+# --- an edit to run-checks.sh during a run doesn't break the run in flight
+cp -R "$S" "$T_TMP/scripts"
+R2="$(new_repo)"
+write_config "$R2" "checks:
+  fast:
+    edit: \"printf 'garbage (\\\\n' > $T_TMP/scripts/run-checks.sh\""
+FACTORY_ROOT="$R2" run bash "$T_TMP/scripts/run-checks.sh" --set fast
+t_code 0 "the run finishes after its own script was rewritten under it"
+t_has "$OUT" "run-checks: passed (edit)" "and reports its result"
 
 t_done

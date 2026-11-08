@@ -40,7 +40,8 @@
 #   state.sh contract-sync           set `passes` in contract.json from the JUnit reports (harness only)
 #   state.sh red-check [--test <name>...]  list AC tests that pass before the code exists; with
 #                                    --test (stage 5, once per new test), check that each named test fails
-#   state.sh flaky --test <name>...   after a failed test was run again alone and passed every time,
+#   state.sh flaky --test <name>...   after a failed test was run again alone (reports in
+#                                     <run>/reruns/<check>) and passed every time,
 #                                     record it as a confirmed flake (<run>/flakes, history .flakes)
 #   state.sh calibrate <agent> <line>    record one lesson line for an agent (folded at stage 7)
 #   state.sh fold-memory             append the run's lesson lines to each agent's MEMORY.md (idempotent)
@@ -392,7 +393,8 @@ case "$cmd" in
       [ "$1" = "--test" ] && [ $# -ge 2 ] || { echo "factory: flaky --test <name> [--test <name>...]" >&2; exit 2; }
       names+=("$2"); shift 2
     done
-    out="$(factory_py "$FACTORY_LIB/junit.py" flaky "$run/reports" "${names[@]}")"; code=$?
+    # The reruns' reports, kept apart from the full run's (<run>/reports), which contract-sync reads.
+    out="$(factory_py "$FACTORY_LIB/junit.py" flaky "$run/reruns" "${names[@]}")"; code=$?
     [ -z "$out" ] || printf '%s\n' "$out"
     [ "$code" -eq 0 ] || exit "$code"
     stage="$(state_get .stage)"; touch "$run/flakes"
