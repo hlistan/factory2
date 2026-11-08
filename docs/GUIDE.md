@@ -106,6 +106,12 @@ shows the override holds up on your own runs.
    - `checks.fast`: run after every implementer turn. Keep them under about 7 minutes; the gate has a
      14-minute limit.
    - `checks.slow`: integration and e2e, run by the orchestrator.
+   - `checks.affected` (optional): the same suites narrowed to what the change touches, from
+     `$FACTORY_CHANGED_FILES` and `$FACTORY_BASE` (e.g. Playwright's `--only-changed=$FACTORY_BASE`, Go
+     packages of the changed files). Stage 5 runs them before the full set to catch regressions in
+     minutes; they are never part of the full set.
+   - `checks.docs_only` (optional, default `["*.md"]`): when only such files changed since the last green
+     full run, the stage 6 preflight runs the fast set and reuses that run (`run-checks.sh --since-green`).
    - Every check must write JUnit XML into `$FACTORY_REPORTS`. That's how a test named `@AC-3 …` turns
      criterion AC-3 green.
    - `checks.check_defining`: the files frozen alongside the tests.
@@ -243,7 +249,11 @@ If the implementer reports that a frozen test is wrong, or that it needs a new d
 ### Stage 5: review and fix (automatic)
 
 1. `learnings-researcher` pulls lessons relevant to the diff.
-2. Mechanical checks and `contract-sync`. Any failure is a blocking finding.
+2. Mechanical checks and `contract-sync`, in the background while the lenses read the code. Each failed
+   test is run again alone three times first: one that passes every time, outside the change, is a
+   **confirmed flake** (`state.sh flaky`). It is recorded, later checks pass over it (`run-checks.sh
+   --flakes`), it is listed at the evidence gate, and stage 7 offers to file it as an issue; it never
+   opens a fix round. Any other failure is a blocking finding.
 3. **Depth** (`limits.depth`):
    - **lite**: a small diff (under `lite_max_lines`) that touches nothing on `risk_list`. Runs the
      correctness and spec lenses only.
@@ -256,9 +266,12 @@ If the implementer reports that a frozen test is wrong, or that it needs a new d
    - **unproven**: stays blocking until a failing test proves it or can't be written.
 6. **Fix loop**, for each blocking finding and each QA fail:
    1. `test-author` writes a failing test that reproduces it.
-   2. The red check confirms the new test fails.
+   2. The red check confirms the new test fails, from one run (three on the projects that matter when
+      it reproduces a timing-dependent failure).
    3. `test-reviewer` reviews it, and the freeze is extended to cover it.
-   4. A fresh implementer at **high** fixes the code.
+   4. A fresh implementer at **high** fixes the code. Its work is checked in widening steps: the new
+      tests, then `checks.affected` (only what the change touches, when the project defines it), then
+      the full checks once, in the background while the lenses re-review.
 7. Only the lenses that blocked review again. After `limits.review_rounds` rounds (2 by default), it
    stops and asks you.
 

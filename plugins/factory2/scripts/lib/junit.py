@@ -13,6 +13,12 @@
       Stage 5: each named test (exact test name or id, else a substring matching exactly one test) must
       appear in the results and fail. One argument per name (names may contain commas). Exit 0 when all
       are red, 1 otherwise.
+  junit.py failed <reports dir>
+      Prints the id (class::name) of every failed test, once each. Exit 0.
+  junit.py flaky <reports dir> <name> [<name>...]
+      After a failure, each named test was run again alone: it is a confirmed flake only when the
+      reruns hold results for it and every one passed. Prints `<name> FLAKY <n> rerun(s) pass <id>`,
+      or FAILS / NOT-RUN / NOT-VISIBLE / AMBIGUOUS. Exit 0 when all are flakes, 1 otherwise.
   junit.py lint <reports dir>
       Lists test names that carry an `@AC-n` tag with a suffix (`@AC-1-extra`, `@AC-1b`), which a
       `--grep '@AC-1\\b'` would select by mistake. Exit 0 clean, 1 otherwise.
@@ -265,6 +271,52 @@ def cmd_red_tests(reports, names):
     return 1 if flagged else 0
 
 
+def matching(cases, w):
+    """The results for one test name: exact name or id, else a substring naming exactly one test id."""
+    hits = [t for t in cases if w in (t["name"], t["id"])]
+    if hits:
+        return hits, None
+    sub = [t for t in cases if w in t["name"]]
+    ids = sorted({t["id"] for t in sub})
+    if len(ids) > 1:
+        return [], ids
+    return sub, None
+
+
+def cmd_failed(reports):
+    for i in sorted({t["id"] for t in load_cases(reports) if t["status"] == "failed"}):
+        print(i)
+    return 0
+
+
+def cmd_flaky(reports, names):
+    """A failure counts as a flake only when every rerun of the test, alone, passed."""
+    cases = load_cases(reports)
+    wanted = [n.strip() for n in names if n.strip()]
+    if not wanted:
+        print("junit: flaky needs test names", file=sys.stderr)
+        return 2
+    flagged = 0
+    for w in wanted:
+        hits, ambiguous = matching(cases, w)
+        ids = sorted({t["id"] for t in hits})
+        passed = [t for t in hits if t["status"] == "passed"]
+        failed = [t for t in hits if t["status"] == "failed"]
+        if ambiguous or len(ids) > 1:
+            print(f"{w}\tAMBIGUOUS\tmatches " + "; ".join((ambiguous or ids)[:5]) + " (give the exact name)")
+        elif not hits:
+            print(f"{w}\tNOT-VISIBLE\tno rerun result has this name (rerun it alone first)")
+        elif failed:
+            print(f"{w}\tFAILS\t{len(failed)} of {len(hits)} rerun(s) fail: a real failure, not a flake")
+        elif not passed:
+            print(f"{w}\tNOT-RUN\tevery rerun result is skipped")
+        else:
+            print(f"{w}\tFLAKY\t{len(passed)} rerun(s) pass\t{ids[0]}")
+            continue
+        flagged += 1
+    return 1 if flagged else 0
+
+
 def cmd_lint(reports):
     bad = sorted({t["id"] for t in load_cases(reports) if SUFFIXED.search(t["text"])})
     for b in bad:
@@ -282,6 +334,10 @@ def main(argv):
             return cmd(argv[2], argv[3], opts.get("--root", "."), opts.get("--base"))
         if len(argv) >= 4 and argv[1] == "red-tests":
             return cmd_red_tests(argv[2], argv[3:])
+        if len(argv) >= 4 and argv[1] == "flaky":
+            return cmd_flaky(argv[2], argv[3:])
+        if len(argv) == 3 and argv[1] == "failed":
+            return cmd_failed(argv[2])
         if len(argv) == 3 and argv[1] == "lint":
             return cmd_lint(argv[2])
     except (OSError, ValueError, json.JSONDecodeError) as e:
@@ -289,7 +345,7 @@ def main(argv):
         return 2
     print(__doc__.strip().split("\n\n")[0], file=sys.stderr)
     print("usage: junit.py sync|red <contract.json> <reports dir> [--base <commit> --root <repo>] | junit.py red-tests <reports dir> <name>..."
-          " | junit.py lint <reports dir>", file=sys.stderr)
+          " | junit.py failed <reports dir> | junit.py flaky <reports dir> <name>... | junit.py lint <reports dir>", file=sys.stderr)
     return 2
 
 

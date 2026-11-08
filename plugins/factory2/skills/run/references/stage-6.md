@@ -14,8 +14,9 @@ so the docs match what is approved.
 ## 6.1 Evidence (`phase evidence`): recorded once, at the final gate
 The recording is what the person approves, not a test: it runs only when nothing else can fail, and once
 per approval request.
-1. **Preflight, no recording.** `bash $S/run-checks.sh --set all --known-failures <run>/baseline-failures`
-   and `bash $S/state.sh contract-sync` must both pass (every check green, every criterion `passes`). A
+1. **Preflight, no recording.** `bash $S/run-checks.sh --set all --since-green --known-failures
+   <run>/baseline-failures --flakes <run>/flakes` (when only docs changed since stage 5's green full run,
+   it runs the fast set and reuses that run) and `bash $S/state.sh contract-sync` must both pass (every check green, every criterion `passes`). A
    failure is a defect: `bash $S/state.sh stage 5 --why "<what failed>"` and the fix loop, without recording
    anything. Then `n=$(bash $S/state.sh round evidence)`. Beyond `limits.evidence_rounds`: stop and ask.
 2. **Record.** First request (or after a spec gap, which changes criteria): `bash $S/evidence.sh capture`,
@@ -41,7 +42,7 @@ per approval request.
 4. Human gate (SKILL.md "Human gates"). **PR run**: commit and push, then `bash $S/pr.sh
    request-approval evidence --details -` with the pack's URL (`evidence.publish`; without it, say the
    pack is local at its path and attach nothing), the criteria table from contract.json, and the
-   advisory findings; then wait. **Terminal run**: give the pack's path or URL, the criteria table, and
+   advisory findings, with the confirmed flakes (`<run>/flakes`) as advisory lines; then wait. **Terminal run**: give the pack's path or URL, the criteria table, and
    the advisory findings; options approve, comment, stop. Comments go to
    `docs/specs/<slug>/feedback/evidence-<n>.md` either way (pr.sh writes them on a PR run).
 5. **Approve** (`approved` from pr.sh, or the terminal answer, then `bash $S/state.sh approve evidence

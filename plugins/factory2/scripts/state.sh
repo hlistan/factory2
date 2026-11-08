@@ -40,6 +40,8 @@
 #   state.sh contract-sync           set `passes` in contract.json from the JUnit reports (harness only)
 #   state.sh red-check [--test <name>...]  list AC tests that pass before the code exists; with
 #                                    --test (stage 5, once per new test), check that each named test fails
+#   state.sh flaky --test <name>...   after a failed test was run again alone and passed every time,
+#                                     record it as a confirmed flake (<run>/flakes, history .flakes)
 #   state.sh calibrate <agent> <line>    record one lesson line for an agent (folded at stage 7)
 #   state.sh fold-memory             append the run's lesson lines to each agent's MEMORY.md (idempotent)
 #   state.sh history <jq expr> [jq args] update the committed history record
@@ -381,6 +383,26 @@ case "$cmd" in
     else
       factory_py "$FACTORY_LIB/junit.py" red "$(spec_dir "$slug")/contract.json" "$run/reports" ${scope[@]+"${scope[@]}"}
     fi
+    ;;
+  flaky) # --test <name>...: after the failed tests were run again alone, confirm each as a flake
+    need_active
+    [ "${1:-}" = "--test" ] || { echo "factory: flaky --test <name> [--test <name>...]" >&2; exit 2; }
+    names=()
+    while [ $# -gt 0 ]; do
+      [ "$1" = "--test" ] && [ $# -ge 2 ] || { echo "factory: flaky --test <name> [--test <name>...]" >&2; exit 2; }
+      names+=("$2"); shift 2
+    done
+    out="$(factory_py "$FACTORY_LIB/junit.py" flaky "$run/reports" "${names[@]}")"; code=$?
+    [ -z "$out" ] || printf '%s\n' "$out"
+    [ "$code" -eq 0 ] || exit "$code"
+    stage="$(state_get .stage)"; touch "$run/flakes"
+    printf '%s\n' "$out" | awk -F '\t' '$2 == "FLAKY" {print $4}' | while IFS= read -r id; do
+      grep -F -x -q -e "$id" "$run/flakes" && continue
+      printf '%s\n' "$id" >> "$run/flakes"
+      history_update '.flakes += [{test: $t, stage: ($st | tonumber? // null), at: $at}]' \
+        --arg t "$id" --arg st "${stage:-}" --arg at "$(now_utc)"
+    done
+    echo "factory: confirmed flakes are in $run/flakes (run-checks --flakes); list them at the stage 6 gate"
     ;;
   calibrate)
     need_active; agent="${1:-}"; line="${2:-}"

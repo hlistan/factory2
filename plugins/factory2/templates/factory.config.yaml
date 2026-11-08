@@ -25,6 +25,10 @@ checks:
   slow:                     # the orchestrator runs these after the implementer stops
     integration: ""
     e2e: "npx playwright test --reporter=junit"
+  affected:                 # optional: stage 5 runs these before the full set, to catch regressions in
+                            # minutes. Each narrows its suite with $FACTORY_CHANGED_FILES (paths changed
+                            # since the run's base, one per line) and $FACTORY_BASE, e.g.
+    # e2e: "npx playwright test --only-changed=$FACTORY_BASE --reporter=junit"
   # Files that define what "the checks" are, frozen with the tests (globs; a name without / matches at
   # any depth). Omit the key to use factory's defaults for npm, Go, Swift, Python, Rust and Ruby.
   check_defining:

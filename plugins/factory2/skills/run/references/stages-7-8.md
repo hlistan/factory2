@@ -49,7 +49,10 @@ is gone and only git-ignored state changes.
     bugfix run: `gh issue comment`; its `Fixes #<n>` closed the issue at the merge). A local incident file
     (`state.sh get .incident_file`, or `.issue` on a terminal run) gets `status: fixed`, the PR and the
     deploy commit.
-11. Go to stage 8.
+11. Confirmed flakes (`<run>/flakes`, history `.flakes`): list them to the user and offer to file each
+    as an issue (one per test, with its rerun evidence), so a later run fixes it on its own instead of
+    inside a feature's fix loop. File only on their yes.
+12. Go to stage 8.
 
 ## Stage 8 (`state.sh stage 8`, `phase monitor`)
 1. The run keeps this checkout while it is watched: the deploy guard allows `ship.rollback` only for
